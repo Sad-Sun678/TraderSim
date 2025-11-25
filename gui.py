@@ -229,18 +229,7 @@ def render_info_panel(font, state, screen):
                     (sell_x + 80, cluster_y + 15))
         screen.blit(font.render("MAX", True, (0, 0, 0)),
                     (max_sell_x + 135, max_y + 15))
-        # pygame.draw.rect(screen, (60, 60, 60), state.toggle_volume_rect)
-        # screen.blit(font.render(
-        #     "Volume: ON" if state.show_volume else "Volume: OFF",
-        #     True, (255, 255, 255)
-        # ), (state.toggle_volume_rect.x + 5, state.toggle_volume_rect.y + 5))
-        #
-        # pygame.draw.rect(screen, (60, 60, 60), state.toggle_candles_rect)
-        # screen.blit(font.render(
-        #     "Candles: ON" if state.show_candles else "Candles: OFF",
-        #     True, (255, 255, 255)
-        # ), (state.toggle_candles_rect.x + 5, state.toggle_candles_rect.y + 5))
-        #
+
 
 def render_chart(font, state, screen):
     if state.selected_stock is None:
@@ -441,24 +430,49 @@ def render_chart(font, state, screen):
     # -------------------------
     if state.show_candles:
         for i, e in enumerate(window):
-            o, h, l, c = e["open"], e["high"], e["low"], e["close"]
 
-            def N(v):
-                return chart_y + chart_h - ((v - min_price) / (max_price - min_price)) * chart_h
+            # Extract OHLC
+            open_price = e["open"]
+            high_price = e["high"]
+            low_price = e["low"]
+            close_price = e["close"]
 
+            # Convert a price into a screen Y position
+            def price_to_y(price):
+                normalized = (price - min_price) / (max_price - min_price)
+                return chart_y + chart_h - (normalized * chart_h)
+
+            # Horizontal position of this candle
             x_center = center_x(i)
-            y_o, y_h, y_l, y_c = map(N, (o, h, l, c))
-            color = (0,200,0) if c >= o else (255,80,80)
 
-            body_w = min(dx * 0.6, dx - 2)
-            body_w = max(body_w, 2)
+            # Vertical candle positions
+            y_open = price_to_y(open_price)
+            y_high = price_to_y(high_price)
+            y_low = price_to_y(low_price)
+            y_close = price_to_y(close_price)
 
-            bounds = hybrid_bounds(x_center, body_w, chart_x, chart_w)
-            if bounds:
-                left, right = bounds
-                pygame.draw.line(screen, color, (x_center, y_h), (x_center, y_l), 2)
-                pygame.draw.rect(screen, color,
-                                 (left, min(y_o,y_c), right-left, abs(y_o-y_c)))
+            # Candle color (green up, red down)
+            color = (0, 200, 0) if close_price >= open_price else (255, 80, 80)
+
+            # Candle body width (clamped to minimum size)
+            body_width = min(dx * 0.6, dx - 2)
+            body_width = max(body_width, 2)
+
+            # Clamp candle to chart area
+            bounds = hybrid_bounds(x_center, body_width, chart_x, chart_w)
+            if not bounds:
+                continue
+
+            left, right = bounds
+            body_height = abs(y_open - y_close)
+            body_top = min(y_open, y_close)
+
+            # Draw wick
+            pygame.draw.line(screen, color, (x_center, y_high), (x_center, y_low), 2)
+
+            # Draw candle body
+            pygame.draw.rect(screen, color, (left, body_top, right - left, body_height))
+
 
     # -------------------------
     # LINE MODE
