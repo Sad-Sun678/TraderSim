@@ -1,7 +1,7 @@
 import sqlite3
 
 # Create / connect to DB
-conn = sqlite3.connect("trader.db")
+conn = sqlite3.connect("game.db")
 cur = conn.cursor()
 
 # ============================
@@ -10,29 +10,27 @@ cur = conn.cursor()
 
 cur.execute("""
 CREATE TABLE IF NOT EXISTS tickers (
-    symbol TEXT PRIMARY KEY,
+    ticker TEXT PRIMARY KEY,
     name TEXT,
     sector TEXT,
+    current_price REAL,
+    last_price REAL,
     base_price REAL,
     volatility TEXT,
     gravity REAL,
-    current_price REAL,
-    last_price REAL,
     trend REAL,
     ath REAL,
     atl REAL,
-    avg_volume INTEGER,
+    buy_qty INTEGER,
     volume INTEGER,
-    volume_cap REAL,
-    last_breakout_time INTEGER,
-    recent_prices TEXT
+    avg_volume INTEGER
 );
 """)
 
 cur.execute("""
 CREATE TABLE IF NOT EXISTS candles (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    symbol TEXT,
+    ticker TEXT,
     day INTEGER,
     time INTEGER,
     open REAL,
@@ -45,14 +43,15 @@ CREATE TABLE IF NOT EXISTS candles (
 
 cur.execute("""
 CREATE TABLE IF NOT EXISTS portfolio (
-    symbol TEXT,
+    ticker TEXT PRIMARY KEY,
     shares INTEGER,
-    bought_at TEXT
+    bought_at TEXT,       -- JSON string
+    sell_qty INTEGER
 );
 """)
-
 cur.execute("""
 CREATE TABLE IF NOT EXISTS account (
+    id INTEGER PRIMARY KEY,
     money REAL,
     market_time INTEGER,
     market_open INTEGER,
@@ -71,6 +70,11 @@ CREATE TABLE IF NOT EXISTS news (
 );
 """)
 
+cur.execute("""
+    INSERT OR REPLACE INTO account
+    (id, money, market_time, market_open, market_close, market_day)
+    VALUES (1, 10000, 0, 570, 960, 1)
+""")
 print("Database created successfully.")
 conn.commit()
 conn.close()

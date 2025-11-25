@@ -7,29 +7,65 @@ import time
 import gui
 import math
 import numpy
+import sqlite3
+import json
+DB_PATH = "game.db"
+
 
 from gui import apply_cached_pixelation
+
+def db_connect():
+    return sqlite3.connect(DB_PATH)
 
 
 class GameState:
     def __init__(self):
-        # LOAD DATA
-        self.account = ff.get_json("player","account")
-        self.game_day = self.account.get("market_day", 1)
-        self.portfolio = ff.get_json("player","portfolio")
-        self.tickers = ff.get_json("game", "tickers")
+        # =====================================================
+        # 1. BASE STRUCTS – overwritten by load_from_db()
+        # =====================================================
+        self.account = {
+            "money": 0,
+            "market_time": 0,
+            "market_open": 570,
+            "market_close": 960,
+            "market_day": 1
+        }
+        self.portfolio = {}
+        self.tickers = {}
 
+        # =====================================================
+        # 2. LOAD EVERYTHING FROM SQLITE
+        # =====================================================
+        self.load_from_db()
+
+        # sync base state
+        self.game_day = self.account["market_day"]
+        self.market_time = self.account["market_time"]
+        self.market_open = self.account["market_open"]
+        self.market_close = self.account["market_close"]
+
+        # =====================================================
+        # 3. ENSURE RUNTIME-ONLY FIELDS EXIST
+        # =====================================================
         for name, data in self.tickers.items():
             data.setdefault("day_history", [])
-            data.setdefault("volume_cap", data[
-                "avg_volume"] * 12),
-            data.setdefault("day_history", []),
+            data.setdefault("ohlc_buffer", [])
+            data.setdefault("recent_prices", [])
+            data.setdefault("volume_history", [])
+            data.setdefault("history", [])
             data.setdefault("last_breakout_time", -9999)
+            data.setdefault("volume_cap", data["avg_volume"] * 12)
 
-        self.global_events = ff.get_json("game","global_events")
-        self.company_events = ff.get_json("game","company_events")
+        # =====================================================
+        # 4. UI & GAME STATE FLAGS
+        # =====================================================
+        self.global_events = ff.get_json("game", "global_events")
+        self.company_events = ff.get_json("game", "company_events")
         self.news_messages = []
+
         self.selected_stock = None
+
+        # ---- UI Buttons ----
         self.buy_button_rect = None
         self.sell_button_rect = None
         self.add_button_sell_rect = None
@@ -38,71 +74,83 @@ class GameState:
         self.minus_button_buy_rect = None
         self.max_button_buy_rect = None
         self.max_button_sell_rect = None
+
+        # ---- Screens ----
         self.show_portfolio_screen = False
         self.show_volume = False
         self.show_candles = False
+        self.show_visualize_screen = False
+
         self.toggle_volume_rect = None
         self.toggle_candles_rect = None
+
+        # ---- UI Collections ----
         self.portfolio_click_zones = {}
         self.portfolio_ui = {}
         self.visualize_ui = {}
+
+        # ---- Portfolio Value ----
         self.portfolio_value = self.get_portfolio_value()
-        self.show_visualize_screen = False
+
+        # ---- Pie Slice Animation ----
         self.slice_animating = False
         self.slice_anim_stock = None
         self.slice_anim_timer = 0
+
+        # =====================================================
+        # 5. CHART INTERACTION SYSTEM
+        # =====================================================
         self.chart_zoom = 1.0
         self.chart_offset = 0
         self.chart_dragging = False
         self.chart_drag_start_x = 0
         self.chart_offset_start = 0
-        self.chart_pixels_per_index = 1  # gets updated each frame
+        self.chart_pixels_per_index = 1
         self.slider_pos = 100
 
-
-        # TWEAK INTERVAL FOR GAME TICK SPEED
-        # GAME CALENDAR (40-day year)
-        self.game_season = 1  # 1–4 (Q1–Q4)
-        self.day_in_season = 1  # 1–10
+        # =====================================================
+        # 6. GAME CLOCK & MARKET SYSTEM
+        # =====================================================
+        self.game_season = 1
+        self.day_in_season = 1
         self.days_per_season = 10
         self.total_seasons = 4
         self.total_days_in_year = self.days_per_season * self.total_seasons
+
         self.tick_interval = 2
         self.tick_timer = 0
-        self.market_time = 0  # 0–1440 minutes (24h)
-        self.market_open = 570  # 9:30 AM → 9*60 + 30 = 570
-        self.market_close = 960  # 4:00 PM → 16*60 = 960
-        self.minutes_per_tick = 5  # each game tick advances 5 minutes
+
+        self.minutes_per_tick = 5
+
         self.is_market_open = False
-        self.market_time = self.account.get("market_time", 0)
-        self.market_open = self.account.get("market_open", 570)  # 9:30 AM default
-        self.market_close = self.account.get("market_close", 960)  # 4:00 PM default
         self.market_events = []
         self.trend_decay_rate = 0.1
+
+        # =====================================================
+        # 7. VOLATILITY & SEASONAL MODELS
+        # =====================================================
         self.volatility_ranges = {
             "low":    (0.002, 0.012),
             "medium": (0.01,  0.05),
             "high":   (0.03,  0.12)
         }
+
         self.season_profiles = {
-            1: {"trend_bias": 0.001, "volatility_mult": 1.1, "volume_mult": 1.1},
-            2: {"trend_bias": 0.000, "volatility_mult": 1.0, "volume_mult": 1.0},
+            1: {"trend_bias":  0.001,  "volatility_mult": 1.1, "volume_mult": 1.1},
+            2: {"trend_bias":  0.0,    "volatility_mult": 1.0, "volume_mult": 1.0},
             3: {"trend_bias": -0.0015, "volatility_mult": 1.4, "volume_mult": 1.2},
             4: {"trend_bias": -0.0005, "volatility_mult": 1.2, "volume_mult": 1.0},
         }
 
+        # =====================================================
+        # 8. SECTOR SENTIMENT SYSTEM
+        # =====================================================
         self.sector_sentiment = {}
+        for ticker, data in self.tickers.items():
+            self.sector_sentiment[data["sector"]] = 0.0
+
         self.market_mood = 0.0
 
-        sector_list = []
-        for ticker in self.tickers:
-            sectors = self.tickers[ticker]["sector"]
-            sector_list.append(sectors)
-        for sector in sector_list:
-            self.sector_sentiment[sector] = 0.0
-        for name, data in self.tickers.items():
-            data.setdefault("day_history", [])
-            data.setdefault("ohlc_buffer", [])
 
     def apply_tick_price(self):
         self.market_time += self.minutes_per_tick
@@ -322,21 +370,29 @@ class GameState:
             data["recent_prices"] = recent_prices
 
             # --------------------------------------------
-            # BUILD OHLC CANDLES
+            # BUILD HOURLY OHLC CANDLES
             # --------------------------------------------
             data["ohlc_buffer"].append(new_price)
 
+            # Current hour (0–23)
+            current_hour = int(self.market_time // 60)
+            # Last candle's hour
+            if data["day_history"]:
+                last_hour = int(data["day_history"][-1]["time"] // 60)
+            else:
+                last_hour = -1
+
+            # Make a new candle when the hour changes OR the day changes
             making_new_candle = (
-                    not data["day_history"] or
-                    data["day_history"][-1]["time"] != self.market_time or
-                    data["day_history"][-1]["day"] != self.game_day
+                    last_hour != current_hour or
+                    (data["day_history"] and data["day_history"][-1]["day"] != self.game_day)
             )
 
             if making_new_candle:
                 prices = data["ohlc_buffer"]
                 entry = {
                     "day": self.game_day,
-                    "time": self.market_time,
+                    "time": int(self.market_time),  # still store exact minute, good for sorting
                     "open": prices[0],
                     "high": max(prices),
                     "low": min(prices),
@@ -345,8 +401,8 @@ class GameState:
                 }
                 data["day_history"].append(entry)
                 data["ohlc_buffer"] = [new_price]
-
             else:
+                # Update the current hourly candle
                 last = data["day_history"][-1]
                 prices = data["ohlc_buffer"]
                 last["close"] = prices[-1]
@@ -354,7 +410,8 @@ class GameState:
                 last["low"] = min(last["low"], min(prices))
                 last["volume"] = data["volume"]
 
-            if len(data["day_history"]) > 700:
+            # Keep history reasonable (DB stores everything)
+            if len(data["day_history"]) > 500:
                 data["day_history"].pop(0)
 
     def _advance_game_day(self):
@@ -428,12 +485,233 @@ class GameState:
     def market_is_open(self):
         return self.market_open <= self.market_time <= self.market_close
 
+    def save_candles_to_db(self):
+        conn = sqlite3.connect("game.db")
+        cur = conn.cursor()
+
+        for name, data in self.tickers.items():
+            for c in data["day_history"]:
+                cur.execute("""
+                            INSERT INTO candles (ticker, day, time, open, high, low, close, volume)
+                            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                            """, (
+                                name,
+                                c["day"],
+                                c["time"],
+                                c["open"],
+                                c["high"],
+                                c["low"],
+                                c["close"],
+                                c["volume"]
+                            ))
+
+            # keep in-memory candles; DB already has them
+            data["day_history"] = data["day_history"][-500:]
+
+        conn.commit()
+        conn.close()
+
+    def load_from_db(self):
+
+
+        conn = sqlite3.connect("game.db")
+        cur = conn.cursor()
+
+        # -----------------------
+        # ACCOUNT
+        # -----------------------
+        row = cur.execute("""
+                          SELECT money, market_time, market_open, market_close, market_day
+                          FROM account
+                          WHERE id = 1
+                          """).fetchone()
+
+        if row:
+            self.account["money"] = row[0]
+            self.account["market_time"] = row[1]
+            self.account["market_open"] = row[2]
+            self.account["market_close"] = row[3]
+            self.account["market_day"] = row[4]
+            self.game_day = row[4]
+
+        # -----------------------
+        # TICKERS
+        # -----------------------
+        rows = cur.execute("""
+                           SELECT ticker,
+                                  name,
+                                  sector,
+                                  current_price,
+                                  last_price,
+                                  base_price,
+                                  volatility,
+                                  gravity,
+                                  trend,
+                                  ath,
+                                  atl,
+                                  buy_qty,
+                                  volume,
+                                  avg_volume
+                           FROM tickers
+                           """).fetchall()
+
+        self.tickers = {}  # overwrite JSON version
+
+        for r in rows:
+            t = r[0]
+            self.tickers[t] = {
+                "ticker": r[0],
+                "name": r[1],
+                "sector": r[2],
+                "current_price": r[3],
+                "last_price": r[4],
+                "base_price": r[5],
+                "volatility": r[6],
+                "gravity": r[7],
+                "trend": r[8],
+                "ath": r[9],
+                "atl": r[10],
+                "buy_qty": r[11],
+                "volume": r[12],
+                "avg_volume": r[13],
+
+                # ALWAYS EMPTY AT LOAD
+                "history": [],
+                "volume_history": [],
+                "recent_prices": [],
+                "day_history": [],
+                "ohlc_buffer": [],
+                "last_breakout_time": -9999
+            }
+
+        # -----------------------
+        # PORTFOLIO
+        # -----------------------
+        rows = cur.execute("SELECT ticker, shares, bought_at, sell_qty FROM portfolio").fetchall()
+
+        for t, shares, bought_at, sell_qty in rows:
+            self.portfolio[t] = {
+                "shares": shares,
+                "bought_at": json.loads(bought_at),
+                "sell_qty": sell_qty
+            }
+
+        # -----------------------
+        # CANDLES (OHLC) — persistent chart history
+        # -----------------------
+        rows = cur.execute("""
+                           SELECT ticker, day, time, open, high, low, close, volume
+                           FROM candles
+                           ORDER BY ticker, day, time
+                           """).fetchall()
+
+        for ticker, day, time, o, h, l, c, vol in rows:
+            if ticker in self.tickers:
+                self.tickers[ticker]["day_history"].append({
+                    "day": day,
+                    "time": time,
+                    "open": o,
+                    "high": h,
+                    "low": l,
+                    "close": c,
+                    "volume": vol
+                })
+
+        conn.close()
+
     def autosave(self):
+
+
+        # Sync account dict with current state
         self.account["market_time"] = self.market_time
         self.account["market_open"] = self.market_open
         self.account["market_close"] = self.market_close
         self.account["market_day"] = self.game_day
 
+        conn = sqlite3.connect("game.db")
+        cur = conn.cursor()
+
+        # -------------------------
+        # 1. SAVE ACCOUNT
+        # -------------------------
+        cur.execute("""
+                    UPDATE account
+                    SET money=?,
+                        market_time=?,
+                        market_open=?,
+                        market_close=?,
+                        market_day=?
+                    WHERE id = 1
+                    """, (
+                        self.account["money"],
+                        self.account["market_time"],
+                        self.account["market_open"],
+                        self.account["market_close"],
+                        self.account["market_day"]
+                    ))
+
+        # -------------------------
+        # 2. SAVE PORTFOLIO
+        # -------------------------
+        for ticker, info in self.portfolio.items():
+            cur.execute("""
+                        UPDATE portfolio
+                        SET shares=?,
+                            bought_at=?,
+                            sell_qty=?
+                        WHERE ticker = ?
+                        """, (
+                            info["shares"],
+                            json.dumps(info["bought_at"]),
+                            info["sell_qty"],
+                            ticker
+                        ))
+
+        # -------------------------
+        # 3. SAVE TICKERS
+        # -------------------------
+        for name, data in self.tickers.items():
+            cur.execute("""
+                        UPDATE tickers
+                        SET current_price=?,
+                            last_price=?,
+                            base_price=?,
+                            volatility=?,
+                            gravity=?,
+                            trend=?,
+                            ath=?,
+                            atl=?,
+                            buy_qty=?,
+                            volume=?,
+                            avg_volume=?
+                        WHERE ticker = ?
+                        """, (
+                            data["current_price"],
+                            data["last_price"],
+                            data["base_price"],
+                            data["volatility"],
+                            data["gravity"],
+                            data["trend"],
+                            data["ath"],
+                            data["atl"],
+                            data["buy_qty"],
+                            data["volume"],
+                            data["avg_volume"],
+                            name
+                        ))
+
+        conn.commit()
+        conn.close()
+
+        # -------------------------
+        # 4. SAVE CANDLES
+        # -------------------------
+        self.save_candles_to_db()
+
+
+        # -------------------------
+        # 6. TINY JSON BACKUP
+        # -------------------------
         ff.write_json("game", "tickers", self.tickers)
         ff.write_json("player", "account", self.account)
         ff.write_json("player", "portfolio", self.portfolio)

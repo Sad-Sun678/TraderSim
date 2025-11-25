@@ -268,6 +268,7 @@ def render_chart(font, state, screen):
     # -------------------------
     # CONSTANTS
     # -------------------------
+    import pygame
     chart_x = 190
     chart_w = 1230
     chart_y = 350
@@ -330,54 +331,34 @@ def render_chart(font, state, screen):
         return
 
     # -------------------------
-    # TRUE MOUSE-CENTERED ZOOM (only when zoom changes)
+    # TRUE MOUSE-CENTERED ZOOM
     # -------------------------
-
-    # Only recalc zoom if event loop updated prev_chart_zoom
     if getattr(state, "prev_chart_zoom", None) != state.chart_zoom:
 
         old_zoom = getattr(state, "prev_chart_zoom", state.chart_zoom)
 
-        # old visible count
-        old_visible = int(total_points / old_zoom)
-        old_visible = max(10, min(total_points, old_visible))
-
-        # new visible count
-        new_visible = int(total_points / state.chart_zoom)
-        new_visible = max(10, min(total_points, new_visible))
+        old_visible = max(10, min(total_points, int(total_points / old_zoom)))
+        new_visible = max(10, min(total_points, int(total_points / state.chart_zoom)))
 
         mx, my = pygame.mouse.get_pos()
 
-        # where mouse is in chart (0..1)
         if chart_x <= mx <= chart_x + chart_w:
             mouse_ratio = (mx - chart_x) / chart_w
         else:
-            mouse_ratio = 0.5  # center
+            mouse_ratio = 0.5
 
-        # what data index mouse was pointing at BEFORE zoom
         mouse_data_index = state.chart_offset + mouse_ratio * old_visible
 
-        # compute new offset so that index stays under mouse
-        new_offset = mouse_data_index - new_visible * mouse_ratio
-        new_offset = int(new_offset)
-
-        # clamp
+        new_offset = int(mouse_data_index - new_visible * mouse_ratio)
         new_offset = max(0, min(total_points - new_visible, new_offset))
 
-        # apply
         state.chart_offset = new_offset
-
-        # replace old "visible_count"
         visible_count = new_visible
-
-        # final slice
         window = window_data[new_offset:new_offset + visible_count]
 
-        # very important: update stored prev zoom
         state.prev_chart_zoom = state.chart_zoom
 
     else:
-        # zoom did not change — keep same visible_count
         visible_count = max(10, min(total_points, int(total_points / state.chart_zoom)))
         window = window_data[state.chart_offset: state.chart_offset + visible_count]
 
@@ -417,7 +398,7 @@ def render_chart(font, state, screen):
         state.chart_dragging = False
 
     # -------------------------
-    # GRID
+    # GRID LINES
     # -------------------------
     grid_color = (120,50,170)
 
@@ -436,35 +417,26 @@ def render_chart(font, state, screen):
     # -------------------------
     if state.show_candles:
         for i, e in enumerate(window):
-
-            # Extract OHLC
             open_price = e["open"]
             high_price = e["high"]
             low_price = e["low"]
             close_price = e["close"]
 
-            # Convert a price into a screen Y position
             def price_to_y(price):
                 normalized = (price - min_price) / (max_price - min_price)
                 return chart_y + chart_h - (normalized * chart_h)
 
-            # Horizontal position of this candle
             x_center = center_x(i)
-
-            # Vertical candle positions
             y_open = price_to_y(open_price)
             y_high = price_to_y(high_price)
             y_low = price_to_y(low_price)
             y_close = price_to_y(close_price)
 
-            # Candle color (green up, red down)
             color = (0, 200, 0) if close_price >= open_price else (255, 80, 80)
 
-            # Candle body width (clamped to minimum size)
             body_width = min(dx * 0.6, dx - 2)
             body_width = max(body_width, 2)
 
-            # Clamp candle to chart area
             bounds = hybrid_bounds(x_center, body_width, chart_x, chart_w)
             if not bounds:
                 continue
@@ -473,12 +445,8 @@ def render_chart(font, state, screen):
             body_height = abs(y_open - y_close)
             body_top = min(y_open, y_close)
 
-            # Draw wick
             pygame.draw.line(screen, color, (x_center, y_high), (x_center, y_low), 2)
-
-            # Draw candle body
             pygame.draw.rect(screen, color, (left, body_top, right - left, body_height))
-
 
     # -------------------------
     # LINE MODE
@@ -499,7 +467,7 @@ def render_chart(font, state, screen):
             pygame.draw.line(screen, (0,255,200), (x1, y1), (x2, y2), 2)
 
     # -------------------------
-    # VOLUME (HYBRID)
+    # VOLUME
     # -------------------------
     if state.show_volume:
         min_v = min(e["volume"] for e in window)
@@ -591,7 +559,6 @@ def render_chart(font, state, screen):
         for t in tooltip:
             screen.blit(font.render(t, True, (255,255,255)), (rect.x+pad, ty))
             ty += font.get_height()
-
 
 def render_main_menu(screen, font):
     menu_running = True
