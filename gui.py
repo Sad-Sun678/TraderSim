@@ -805,50 +805,50 @@ def get_slider_value(slider_rect,handle_x):
 
 
 def render_news_ticker(screen, font, messages, speed, offset, dt):
-    """
-    screen: pygame Surface
-    font: pygame Font
-    messages: list of {"text": str, "color": (r,g,b)}
-    speed: pixels per second (recommended: 80–160)
-    offset: current x scroll value
-    dt: delta time from main loop (seconds)
-    """
-
     w, h = screen.get_size()
     bar_height = 60
 
-    # --- Draw bottom bar ---
     pygame.draw.rect(screen, (104, 104, 104), (0, h - bar_height, w, bar_height))
 
-    # --- Pre-render text surfaces ---
+    if not messages:
+        return offset
+
+    # --- Pre-render ---
     surfaces = []
     separator = "   |   "
     sep_surf = font.render(separator, True, (230, 230, 230))
 
     for item in messages:
-        text_surf = font.render(item["text"], True, item["color"])
-        surfaces.append(text_surf)
+        surf = font.render(item["text"], True, item["color"])
+        surfaces.append(surf)
         surfaces.append(sep_surf)
 
-    # --- Draw looped ticker ---
+    # --- Draw loop ---
     x = offset
     y = h - bar_height + (bar_height // 2 - surfaces[0].get_height() // 2)
 
     total_width = 0
-
     for surf in surfaces:
-        screen.blit(surf, (int(x), y))  # subpixel safe: only cast when drawing
+        screen.blit(surf, (int(x), int(y)))
         x += surf.get_width()
         total_width += surf.get_width()
 
-    # --- Smooth movement using delta-time ---
+    # Move ticker
     offset -= speed * dt
 
-    # --- Loop seamlessly ---
-    if offset <= -total_width:
+    # --- Remove first message when it fully leaves screen ---
+    if messages:
+        first_width = surfaces[0].get_width() + surfaces[1].get_width()
+        if offset < -first_width:
+            messages.pop(0)
+            offset += first_width
+
+    # Loop if empty
+    if offset <= -total_width and messages:
         offset = w
 
     return offset
+
 
 
 def render_side_bar(screen, font, state):

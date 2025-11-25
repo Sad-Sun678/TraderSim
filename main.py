@@ -23,6 +23,7 @@ class GameState:
                 "avg_volume"] * 12)  # <-- add this
         self.global_events = ff.get_json("game","global_events")
         self.company_events = ff.get_json("game","company_events")
+        self.news_messages = []
         for name, data in self.tickers.items():
             data.setdefault("day_history", [])
 
@@ -112,6 +113,7 @@ class GameState:
         self.is_market_open = self.market_open <= self.market_time <= self.market_close
 
         for name, data in self.tickers.items():
+            breakout_force = 0.0
 
             # --------------------------------------------
             # BASIC SHORTCUTS
@@ -135,19 +137,19 @@ class GameState:
                 data["atl"] = min(data["atl"], hist_min)
 
             # --------------------------------------------
-            # 1. GENTLE MEAN REVERSION
+            # 1. MEAN REVERSION
             # --------------------------------------------
             fair_value_force = (base - current_price) * (gravity * 1.3)
 
             # --------------------------------------------
-            # 2. MOMENTUM (price streaks)
+            # 2. MOMENTUM
             # --------------------------------------------
             price_diff = current_price - previous_price
             data["trend"] = data["trend"] * 0.9 + price_diff * 0.1
             momentum_force = data["trend"] * 0.01
 
             # --------------------------------------------
-            # 3. VOLATILITY REGIME (with volume influence)
+            # 3. VOLATILITY REGIME
             # --------------------------------------------
             vol_map = {
                 "low": 0.002,
@@ -178,63 +180,58 @@ class GameState:
             t = self.market_time
 
             if self.is_market_open:
-                # revert slowly toward average
+
                 vol += (base_vol - vol) * 0.05
+                vol += random.randint(-int(base_vol * 0.025), int(base_vol * 0.025))
 
-                # random noise
-                vol += random.randint(-int(base_vol * 0.04), int(base_vol * 0.04))
+                if "intraday_bias" not in data:
+                    data["intraday_bias"] = random.uniform(0.7, 1.3)
+                vol *= data["intraday_bias"]
 
-                # realistic intraday structure
-                if 570 <= t <= 615:  # open
-                    vol *= random.uniform(1.7, 3.2)
-                elif 720 <= t <= 810:  # lunch
-                    vol *= random.uniform(0.55, 0.85)
-                elif 900 <= t <= 960:  # power hour
-                    vol *= random.uniform(1.3, 2.5)
+                if "daily_volume_phase" not in data or self.market_time < 5:
+                    data["daily_volume_phase"] = random.uniform(-0.7, 0.7)
 
-                # occasional breakout
-                if random.random() < 0.015:
-                    vol *= random.uniform(1.4, 3.5)
+                phase = data["daily_volume_phase"]
+                time_ratio = (t - self.market_open) / max(1, self.market_close - self.market_open)
+                sin_wave = 1.0 + 0.25 * math.sin(6.28 * (time_ratio + phase))
+                vol *= sin_wave
+
+                if 570 <= t <= 615:
+                    vol *= random.uniform(1.2, 2.0)
+                elif 720 <= t <= 810:
+                    vol *= random.uniform(0.7, 0.95)
+                elif 900 <= t <= 960:
+                    vol *= random.uniform(1.1, 1.7)
+
+                if random.random() < 0.02:
+                    vol *= random.uniform(1.3, 3.2)
 
             else:
-                # AFTER HOURS — realistic calm
-                # drift gently toward ~10–20% of normal average volume
                 target_ah = base_vol * random.uniform(0.08, 0.18)
                 vol += (target_ah - vol) * 0.15
-
-                # tiny noise only
                 vol += random.randint(-int(base_vol * 0.005), int(base_vol * 0.005))
 
             # --------------------------------------------
-            # 7. SEASONAL EFFECTS (NOW CORRECT)
+            # 7. SEASONAL EFFECTS
             # --------------------------------------------
             season = self.game_season
             profile = self.season_profiles[season]
+            season_trend_force = profile["trend_bias"]
 
-            # SEASON TREND SHOULD BE DIRECTIONAL, NOT MEAN REVERSION
-            season_trend_force = profile["trend_bias"]  # small constant drift
-
-            # volatility influenced by season
             volatility_force *= profile["volatility_mult"]
-
-            # volume influenced by season
             vol *= profile["volume_mult"]
+
             # --------------------------------------------
-            # 7. DYNAMIC VOLUME CAP (ONLY DURING MARKET HOURS)
+            # 8. VOLUME CAP
             # --------------------------------------------
             if self.is_market_open:
                 if vol > data["volume_cap"] * 0.7:
-                    data["volume_cap"] *= random.uniform(1.01, 1.05)  # expand ceiling slowly
+                    data["volume_cap"] *= random.uniform(1.01, 1.05)
                 elif vol < data["volume_cap"] * 0.3:
                     data["volume_cap"] *= random.uniform(0.97, 0.995)
-
-                # small natural drift
                 data["volume_cap"] *= random.uniform(0.999, 1.001)
 
-            # clamp cap itself
             data["volume_cap"] = max(base_vol * 5, min(data["volume_cap"], base_vol * 40))
-
-            # final clamp
             vol = max(150, min(vol, data["volume_cap"]))
             data["volume"] = int(vol)
 
@@ -243,21 +240,16 @@ class GameState:
                 data["volume_history"].pop(0)
 
             # --------------------------------------------
-            # 8. MARKET NOISE
+            # 9. MARKET NOISE + MOOD
             # --------------------------------------------
             noise_force = random.gauss(0, 0.003 if self.is_market_open else 0.0004)
-            # --------------------------------------------
-            # 9. MARKET MOOD
-            # --------------------------------------------
-            if random.random() < 0.002:
-                # about once every 500 ticks → 1–2 times per day
-                self.market_mood = random.uniform(-0.003, 0.002)  # bear bias slightly stronger
 
-            # global bias applied every tick
+            if random.random() < 0.002:
+                self.market_mood = random.uniform(-0.003, 0.002)
             mood_force = self.market_mood
 
             # --------------------------------------------
-            # FINAL PRICE COMBINATION
+            # FINAL PRICE
             # --------------------------------------------
             change = (
                     fair_value_force +
@@ -270,16 +262,88 @@ class GameState:
             )
 
             new_price = max(0.01, current_price + change)
-
             data["current_price"] = round(new_price, 2)
-            # --------------------------------------------
-            # BUILD OHLC CANDLES (ONE PER TIMESTAMP)
-            # --------------------------------------------
+            # ---------------------------------------------------
+            # BREAKOUT DETECTION + NEWS + FOLLOW-THROUGH FORCE
+            # ---------------------------------------------------
 
-            # Add newest tick into the buffer
+            # Use previous tick's close (NOT new_price)
+            last_close = current_price
+
+            # Recent price history BEFORE mutation
+            recent_prices = data.get("recent_prices", [])
+
+            if len(recent_prices) >= 20:
+
+                # Look at last ~30 points
+                window = recent_prices[-30:]
+                recent_high = max(window)
+                recent_low = min(window)
+
+
+                breakout_up = last_close > recent_high * 1.01
+                breakout_down = last_close < recent_low * 0.99
+
+
+                # -----------------------------
+                # BULLISH BREAKOUT
+                # -----------------------------
+                if breakout_up:
+                    breakout_force = abs(last_close * 0.004)  # +0.4%
+                    volatility_force *= 1.5
+                    data["trend"] += last_close * 0.002
+
+                    # NEWS
+                    self.news_messages.append({
+                        "text": f"{name} breaks resistance! Bullish breakout!",
+                        "color": (0, 255, 0)
+                    })
+
+                    print(">>> NEWS SENT (BULLISH BREAKOUT) <<<")
+
+                    recent_prices.append(last_close)
+                    data["recent_prices"] = recent_prices[-200:]
+
+                    # Only fire once
+                    breakout_up = False
+
+                # -----------------------------
+                # BEARISH BREAKOUT
+                # -----------------------------
+                elif breakout_down:
+                    breakout_force = -abs(last_close * 0.004) # 4%
+                    volatility_force *= 1.6
+                    data["trend"] -= last_close * 0.002
+
+                    # NEWS
+                    self.news_messages.append({
+                        "text": f"{name} breaks support! Bearish breakdown!",
+                        "color": (255, 80, 80)
+                    })
+
+                    print(">>> NEWS SENT (BEARISH BREAKDOWN) <<<")
+                    # ---- NEW: reset breakout baseline ----
+                    recent_prices.append(last_close)
+                    data["recent_prices"] = recent_prices[-200:]
+
+                    # Only fire once
+                    breakout_down = False
+
+                # Apply to final price change
+                change += breakout_force
+
+            # Append AFTER logic
+            recent_prices.append(last_close)
+            if len(recent_prices) > 200:
+                recent_prices.pop(0)
+
+            data["recent_prices"] = recent_prices
+
+            # --------------------------------------------
+            # BUILD OHLC CANDLES
+            # --------------------------------------------
             data["ohlc_buffer"].append(new_price)
 
-            # Determine if we should start a NEW candle
             making_new_candle = (
                     not data["day_history"] or
                     data["day_history"][-1]["time"] != self.market_time or
@@ -287,9 +351,7 @@ class GameState:
             )
 
             if making_new_candle:
-                # Build candle from the buffer
                 prices = data["ohlc_buffer"]
-
                 entry = {
                     "day": self.game_day,
                     "time": self.market_time,
@@ -299,25 +361,17 @@ class GameState:
                     "close": prices[-1],
                     "volume": data["volume"]
                 }
-
                 data["day_history"].append(entry)
-
-                # IMPORTANT:
-                # Keep the last tick in the buffer, because the new candle
-                # continues accumulating ticks from SAME timestamp.
                 data["ohlc_buffer"] = [new_price]
 
             else:
-                # UPDATE EXISTING CANDLE
                 last = data["day_history"][-1]
                 prices = data["ohlc_buffer"]
-
                 last["close"] = prices[-1]
                 last["high"] = max(last["high"], max(prices))
                 last["low"] = min(last["low"], min(prices))
                 last["volume"] = data["volume"]
 
-            # Trim old candles
             if len(data["day_history"]) > 700:
                 data["day_history"].pop(0)
 
@@ -456,12 +510,7 @@ state = GameState()
 ticker_x = 1920  # start fully off-screen to the right
 save_timer = 0
 save_interval = 10  # seconds
-ticker_messages = [
-    {"text": "BREAKING: Crystal Water Co hits ALL-TIME HIGH", "color": (0, 255, 0)},
-    {"text": "MARKET UPDATE: Inflation fears cause tech pullback", "color": (255, 220, 0)},
-    {"text": "ALERT: GreenCore Energy breaks support level", "color": (255, 80, 80)},
-    {"text": "ECONOMY: Global demand rising for consumer goods", "color": (0, 200, 255)}
-]
+
 backbuffer = pygame.Surface((1920, 1080))
 crt_enabled = False
 frame_counter = 0
@@ -491,6 +540,47 @@ while running:
                     running = False
                 if choice == "toggle_crt":
                     crt_enabled = not crt_enabled
+            if event.key == pygame.K_b:
+                s = state.selected_stock
+                if s:
+                    data = state.tickers[s]
+
+                    # Ensure the price will exceed the recent high
+                    if "recent_prices" not in data or len(data["recent_prices"]) < 30:
+                        data["recent_prices"] = [data["current_price"] * 0.9] * 30
+
+                    # Increase the price WAY above current high
+                    old_price = data["current_price"]
+                    recent_high = max(data["recent_prices"][-30:])
+                    data["current_price"] = recent_high * 1.05  # guaranteed breakout
+
+                    print("=== FORCED BREAKOUT ===")
+                    print("old:", old_price, "new:", data["current_price"], "recent_high:", recent_high)
+            # --- FORCE BEARISH BREAKOUT TEST ---
+            if event.type == pygame.KEYDOWN and event.key == pygame.K_KP0:  # NumPad 0
+                if state.selected_stock:
+                    name = state.selected_stock
+                    data = state.tickers[name]
+
+                    # force price far BELOW recent low
+                    recent_prices = data.get("recent_prices", [])
+                    if recent_prices:
+                        recent_low = min(recent_prices[-30:])
+                        forced = recent_low * 0.90  # 10% breakdown
+
+                        print("=== FORCED BEARISH BREAKDOWN ===")
+                        print(f"old: {data['current_price']} new: {forced}  recent_low: {recent_low}")
+
+                        data["current_price"] = forced
+                        data["last_price"] = forced
+                        recent_prices.append(forced)
+                        data["recent_prices"] = recent_prices[-200:]
+
+                        # inject news message now
+                        state.news_messages.append({
+                            "text": f"{name} breaks support! Bearish breakdown!",
+                            "color": (255, 80, 80)
+                        })
 
         # Chart zoom
         if event.type == pygame.MOUSEWHEEL:
@@ -724,7 +814,7 @@ while running:
 
 
     ticker_speed = 160
-    ticker_x = gui.render_news_ticker(game_surface, ticker_font, ticker_messages, ticker_speed, ticker_x, dt)
+    ticker_x = gui.render_news_ticker(game_surface, ticker_font, state.news_messages, ticker_speed, ticker_x, dt)
 
     # CRT
     if crt_enabled:
