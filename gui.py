@@ -429,7 +429,7 @@ def render_chart(font, state, screen):
     for value in [max_price, (max_price + min_price)/2, min_price]:
         norm = (value - min_price) / (max_price - min_price)
         y = chart_y + chart_h - (norm * chart_h)
-        pygame.draw.line(screen, grid_color, (chart_x, y), (chart_x + chart_w, y), 1)
+        pygame.draw.line(screen, grid_color, (chart_x, y), (chart_x + chart_w, y), 2)
         screen.blit(font.render(f"${value:.2f}", True, grid_color),
                     (chart_x + chart_w + 10, y - 10))
 

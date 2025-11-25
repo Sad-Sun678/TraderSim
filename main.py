@@ -109,7 +109,7 @@ class GameState:
             self.market_time -= 1440
             self._advance_game_day()
 
-        is_market_open = self.market_open <= self.market_time <= self.market_close
+        self.is_market_open = self.market_open <= self.market_time <= self.market_close
 
         for name, data in self.tickers.items():
 
@@ -177,7 +177,7 @@ class GameState:
             vol = data["volume"]
             t = self.market_time
 
-            if is_market_open:
+            if self.is_market_open:
                 # revert slowly toward average
                 vol += (base_vol - vol) * 0.05
 
@@ -222,7 +222,7 @@ class GameState:
             # --------------------------------------------
             # 7. DYNAMIC VOLUME CAP (ONLY DURING MARKET HOURS)
             # --------------------------------------------
-            if is_market_open:
+            if self.is_market_open:
                 if vol > data["volume_cap"] * 0.7:
                     data["volume_cap"] *= random.uniform(1.01, 1.05)  # expand ceiling slowly
                 elif vol < data["volume_cap"] * 0.3:
@@ -245,7 +245,7 @@ class GameState:
             # --------------------------------------------
             # 8. MARKET NOISE
             # --------------------------------------------
-            noise_force = random.gauss(0, 0.003 if is_market_open else 0.0004)
+            noise_force = random.gauss(0, 0.003 if self.is_market_open else 0.0004)
             # --------------------------------------------
             # 9. MARKET MOOD
             # --------------------------------------------
@@ -466,7 +466,9 @@ backbuffer = pygame.Surface((1920, 1080))
 crt_enabled = False
 frame_counter = 0
 scanlines = pygame.Surface((1920, 1080), pygame.SRCALPHA)
+pixel_surface = pygame.Surface((1920, 1080))
 
+PIXEL_SIZE = 1.2
 for y in range(0, 1080, 3):
     pygame.draw.line(scanlines, (0, 0, 0, 45), (0, y), (1920, y))
 while running:
@@ -519,8 +521,11 @@ while running:
                 if unwarped is None:
                     continue
                 mx, my = unwarped
+
+
             else:
                 mx, my = event.pos
+
             # ==================================================
             # Candle/Chart toggle
             # ==================================================
@@ -628,6 +633,7 @@ while running:
             # SELL
             if state.sell_button_rect and state.sell_button_rect.collidepoint(mx, my):
                 if state.is_market_open:
+
                     state.handle_sell()
                     sale_sound.play()
 
@@ -643,7 +649,12 @@ while running:
                 if state.portfolio[s]["sell_qty"] < state.portfolio[s]["shares"]:
                     state.portfolio[s]["sell_qty"] += 1
                     tick_sound_up.play()
-
+            # MAX SELL
+            if state.max_button_sell_rect and state.max_button_sell_rect.collidepoint(mx, my):
+                s = state.selected_stock
+                cash = state.account["money"]
+                price = state.tickers[s]["current_price"]
+                state.portfolio[s]["sell_qty"] = math.floor(state.portfolio[s]["shares"])
     # -----------------------------------------------------
     # TICK UPDATE
     # -----------------------------------------------------
@@ -717,12 +728,18 @@ while running:
 
     # CRT
     if crt_enabled:
-        warped = gui.apply_crt_warp(game_surface, 0.05)
-        screen.blit(warped,(0,0))
-        screen.blit(scanlines,(0,0))
-        gui._apply_flicker(screen)
+        # 1. Apply CRT warp TO game_surface
+        warped = gui.apply_crt_warp(game_surface, 0.03)
+
+        # 2. Pixelate the WARPED result (not the original game_surface)
+        apply_cached_pixelation(warped, pixel_surface, PIXEL_SIZE)
+
+        # 3. Draw pixelated CRT to screen
+        screen.blit(pixel_surface, (0, 0))
+        screen.blit(scanlines, (0, 0))
     else:
-        screen.blit(game_surface,(0,0))
+        screen.blit(game_surface, (0, 0))
+
 
     # FPS
     fps = int(clock.get_fps())
