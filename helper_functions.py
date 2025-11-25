@@ -3,51 +3,40 @@
 # conn = sqlite3.connect("game.db")
 # cur = conn.cursor()
 #
-# cur.execute("DELETE FROM tickers;")
-# cur.execute("DELETE FROM candles;")
-# cur.execute("DELETE FROM portfolio;")
-# cur.execute("DELETE FROM news;")
-# cur.execute("DELETE FROM account;")
+# print("---- Clearing tables ----")
 #
-# # Reinsert the one account row
-# cur.execute("""
-#     INSERT INTO account (id, money, market_time, market_open, market_close, market_day)
-#     VALUES (1, 150000, 570, 570, 960, 1)
-# """)
+# tables = [
+#     "account",
+#     "tickers",
+#     "portfolio",
+#     "candles"
+# ]
+#
+# for t in tables:
+#     cur.execute(f"DELETE FROM {t};")
+#     print(f"Cleared: {t}")
+#
+# # Optional: Reset AUTOINCREMENT counters
+# cur.execute("DELETE FROM sqlite_sequence;")
 #
 # conn.commit()
 # conn.close()
 #
-# print("DB wiped clean.")
-
-##################
-#CLEARS DB
-##################
+# print("---- DB reset complete ----")
 
 
-import json
+
+
 import sqlite3
+import json
 
-# -------------------------------------------------
-# 1. This is already a Python dict — DO NOT json.loads it
-# -------------------------------------------------
-TICKERS = {
-    "SOLR": {
-        "ticker": "SOLR",
-        "name": "Solara Energy Corp",
-        "sector": "Energy",
-        "current_price": 41.61,
-        "last_price": 41.61,
-        "base_price": 40.0,
-        "volatility": "medium",
-        "gravity": 0.0003,
-        "trend": 0,
-        "ath": 41.61,
-        "atl": 41.61,
-        "buy_qty": 0,
-        "volume": 22000,
-        "avg_volume": 20000
-    },
+# ---------------------------------------------------------
+# 1. PASTE YOUR JSON TICKERS DICT HERE
+#    Example:
+#    TICKERS_JSON = { "SOLR": { ... }, "NEOT": { ... } }
+# ---------------------------------------------------------
+
+TICKERS_JSON = {
     "NEOT": {
         "ticker": "NEOT",
         "name": "Neoteric Tech Holdings",
@@ -399,44 +388,63 @@ TICKERS = {
         "history": [],
         "day_history": []
     }
-
 }
 
-# -------------------------------------------------
-# 2. Connect to DB
-# -------------------------------------------------
+
+
+# ---------------------------------------------------------
+# 2. CONNECT & CLEAR TICKERS TABLE
+# ---------------------------------------------------------
 conn = sqlite3.connect("game.db")
 cur = conn.cursor()
 
-# -------------------------------------------------
-# 3. Insert each ticker into DB
-# -------------------------------------------------
-for symbol, data in TICKERS.items():
-    cur.execute("""
-        INSERT OR REPLACE INTO tickers (
-            ticker, name, sector, current_price, last_price,
-            base_price, volatility, gravity, trend, ath, atl,
-            buy_qty, volume, avg_volume
-        )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    """, (
-        data["ticker"],
-        data["name"],
-        data["sector"],
-        data["current_price"],
-        data["last_price"],
-        data["base_price"],
-        data["volatility"],
-        data["gravity"],
-        data["trend"],
-        data["ath"],
-        data["atl"],
-        data["buy_qty"],
-        data["volume"],
-        data["avg_volume"]
+print("---- Clearing tickers table ----")
+cur.execute("DELETE FROM tickers;")
+cur.execute("DELETE FROM sqlite_sequence WHERE name='tickers';")  # reset auto-inc
+
+
+# ---------------------------------------------------------
+# 3. INSERT EACH TICKER INTO DB
+# ---------------------------------------------------------
+insert_sql = """
+INSERT INTO tickers (
+    ticker,
+    name,
+    sector,
+    current_price,
+    last_price,
+    base_price,
+    volatility,
+    gravity,
+    trend,
+    ath,
+    atl,
+    buy_qty,
+    volume,
+    avg_volume
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+"""
+
+for symbol, info in TICKERS_JSON.items():
+    cur.execute(insert_sql, (
+        info["ticker"],
+        info["name"],
+        info["sector"],
+        info["current_price"],
+        info["last_price"],
+        info["base_price"],
+        info["volatility"],
+        info["gravity"],
+        info["trend"],
+        info["ath"],
+        info["atl"],
+        info["buy_qty"],
+        info["volume"],
+        info["avg_volume"]
     ))
+    print(f"Inserted: {symbol}")
 
 conn.commit()
 conn.close()
+print("---- Tickers populated successfully ----")
 
-print("Tickers inserted successfully!")
