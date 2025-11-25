@@ -237,166 +237,133 @@ def render_info_panel(font, state, screen):
                     (max_sell_x + 135, max_y + 15))
 
 def render_chart(font, state, screen):
-    import pygame
-
     if state.selected_stock is None:
         return
 
-    # =====================================================
+    # -------------------------
+    # HYBRID BAR BOUNDS HELPER
+    # -------------------------
+    def hybrid_bounds(x_center, bar_w, chart_x, chart_w):
+        left = x_center - bar_w / 2
+        right = x_center + bar_w / 2
+
+        # If bar is too narrow to matter -> hide it (STRICT mode)
+        if bar_w < 2:
+            return None
+
+        # Fully inside -> draw normal
+        if left >= chart_x and right <= chart_x + chart_w:
+            return (left, right)
+
+        # Partially outside -> CLAMP it
+        clamped_left = max(chart_x, left)
+        clamped_right = min(chart_x + chart_w, right)
+
+        if clamped_right > clamped_left:
+            return (clamped_left, clamped_right)
+
+        return None
+
+    # -------------------------
     # CONSTANTS
-    # =====================================================
+    # -------------------------
+    import pygame
     chart_x = 190
     chart_w = 1230
     chart_y = 350
     chart_h = 300
-
     panel_rect = pygame.Rect(chart_x, 90, chart_w, chart_h + 420)
-    pygame.draw.rect(screen, (40, 0, 80), panel_rect)
 
     stock = state.selected_stock
-    data = state.tickers[stock]
+    history = state.tickers[stock]["day_history"]
 
-    # =====================================================
-    # TIMEFRAME BUTTONS & TOGGLES
-    # =====================================================
+    # -------------------------
+    # BUTTONS
+    # -------------------------
     button_y = 310
     button_x = 1040
-
     volume_btn = pygame.Rect(button_x, button_y, 155, 30)
     candles_btn = pygame.Rect(button_x + 200, button_y, 155, 30)
 
     state.toggle_volume_rect = volume_btn
     state.toggle_candles_rect = candles_btn
 
-    # Draw toggles
+    if len(history) < 2:
+        return
+
+    # -------------------------
+    # PANEL FIRST
+    # -------------------------
+    pygame.draw.rect(screen, (40, 0, 80), panel_rect)
+
+    # -------------------------
+    # BUTTONS (draw AFTER panel)
+    # -------------------------
     pygame.draw.rect(screen, (80, 30, 120), volume_btn)
     pygame.draw.rect(screen, (80, 30, 120), candles_btn)
 
     screen.blit(font.render(
         "Volume: ON" if state.show_volume else "Volume: OFF",
-        True, (255, 255, 255)),
-        (volume_btn.x + 8, volume_btn.y + 5))
-
+        True, (255,255,255)),
+        (volume_btn.x+8, volume_btn.y+5)
+    )
     screen.blit(font.render(
         "Candles: ON" if state.show_candles else "Candles: OFF",
-        True, (255, 255, 255)),
-        (candles_btn.x + 8, candles_btn.y + 5))
+        True, (255,255,255)),
+        (candles_btn.x+8, candles_btn.y+5)
+    )
 
-    # Timeframe buttons
-    labels = ["1D", "5D", "1H", "15M"]
-    tf_x = chart_x + 20
-    tf_y = 95
-    bw, bh = 70, 30
-    state.timeframe_buttons = {}
+    volume_h = 120
+    volume_y = chart_y + chart_h + 40
+    time_y = volume_y + volume_h + 20
+    day_y = time_y + 20
 
-    for i, tf in enumerate(labels):
-        r = pygame.Rect(tf_x + i * (bw + 10), tf_y, bw, bh)
-        state.timeframe_buttons[tf] = r
-        pygame.draw.rect(screen,
-                         (200, 100, 255) if state.chart_timeframe == tf else (80, 30, 120),
-                         r)
-        txt = font.render(tf, True, (255, 255, 255))
-        screen.blit(txt, (r.x + (bw - txt.get_width()) // 2, r.y + 5))
-
-    # =====================================================
-    # BUILD WINDOW DATA ACCORDING TO TIMEFRAME
-    # =====================================================
-    tf = state.chart_timeframe
-    day_history = sorted(data["day_history"], key=lambda e: (e["day"], e["time"]))
-
-    # ---------------- TICK STREAM SETUP ----------------
-    recent = data["recent_prices"]
-    recent_times = []
-    mt = state.market_time
-    minutes_per_tick = state.minutes_per_tick
-
-    # Make times align backward
-    for i in range(len(recent)):
-        t = mt - (len(recent) - 1 - i) * minutes_per_tick
-        recent_times.append(t)
-
-    def clamp(val, lo, hi):
-        return max(lo, min(val, hi))
-
-    # Build candles from ticks
-    def build_tick_candles(chunk_minutes):
-        if len(recent) < 1:
-            return []
-
-        candles = []
-        group_size = max(1, chunk_minutes // minutes_per_tick)
-
-        idx = 0
-        while idx < len(recent):
-            group = recent[idx:idx + group_size]
-            times = recent_times[idx:idx + group_size]
-
-            c = {
-                "day": state.game_day,
-                "time": int(times[-1]),
-                "open": group[0],
-                "high": max(group),
-                "low": min(group),
-                "close": group[-1],
-                "volume": data["volume"]
-            }
-            candles.append(c)
-            idx += group_size
-
-        return candles[-200:]
-
-    if tf == "15M":
-        window_data = build_tick_candles(15)
-
-    elif tf == "1H":
-        window_data = build_tick_candles(60)
-
-    elif tf == "1D":
-        if day_history:
-            last_day = day_history[-1]["day"]
-            window_data = [e for e in day_history if e["day"] == last_day]
-        else:
-            window_data = []
-
-    elif tf == "5D":
-        if day_history:
-            last_day = day_history[-1]["day"]
-            window_data = [e for e in day_history if last_day - 4 <= e["day"] <= last_day]
-        else:
-            window_data = []
-
-    else:
-        window_data = day_history[-100:]
-
-    if len(window_data) < 2:
+    # -------------------------
+    # SORT / FILTER DATA
+    # -------------------------
+    history = sorted(history, key=lambda e: (e["day"], e["time"]))
+    max_day = history[-1]["day"]
+    min_day = max_day - 6
+    window_data = [e for e in history if min_day <= e["day"] <= max_day]
+    total_points = len(window_data)
+    if total_points < 2:
         return
 
-    # =====================================================
-    # ZOOM & PAN
-    # =====================================================
-    total_points = len(window_data)
-    visible_count = max(2, min(total_points, int(total_points / state.chart_zoom)))
-
-    # Zoom centering fix
+    # -------------------------
+    # TRUE MOUSE-CENTERED ZOOM
+    # -------------------------
     if getattr(state, "prev_chart_zoom", None) != state.chart_zoom:
+
         old_zoom = getattr(state, "prev_chart_zoom", state.chart_zoom)
-        old_vis = max(2, min(total_points, int(total_points / old_zoom)))
 
-        mx = pygame.mouse.get_pos()[0]
-        mouse_ratio = (mx - chart_x) / chart_w if chart_x <= mx <= chart_x + chart_w else 0.5
+        old_visible = max(10, min(total_points, int(total_points / old_zoom)))
+        new_visible = max(10, min(total_points, int(total_points / state.chart_zoom)))
 
-        mouse_index = state.chart_offset + mouse_ratio * old_vis
-        new_offset = int(mouse_index - visible_count * mouse_ratio)
+        mx, my = pygame.mouse.get_pos()
 
-        state.chart_offset = max(0, min(total_points - visible_count, new_offset))
+        if chart_x <= mx <= chart_x + chart_w:
+            mouse_ratio = (mx - chart_x) / chart_w
+        else:
+            mouse_ratio = 0.5
+
+        mouse_data_index = state.chart_offset + mouse_ratio * old_visible
+
+        new_offset = int(mouse_data_index - new_visible * mouse_ratio)
+        new_offset = max(0, min(total_points - new_visible, new_offset))
+
+        state.chart_offset = new_offset
+        visible_count = new_visible
+        window = window_data[new_offset:new_offset + visible_count]
+
         state.prev_chart_zoom = state.chart_zoom
 
-    # Final window slice
-    window = window_data[state.chart_offset: state.chart_offset + visible_count]
+    else:
+        visible_count = max(10, min(total_points, int(total_points / state.chart_zoom)))
+        window = window_data[state.chart_offset: state.chart_offset + visible_count]
 
-    # =====================================================
+    # -------------------------
     # PRICE SCALE
-    # =====================================================
+    # -------------------------
     if state.show_candles:
         min_price = min(e["low"] for e in window)
         max_price = max(e["high"] for e in window)
@@ -407,12 +374,12 @@ def render_chart(font, state, screen):
     if max_price == min_price:
         max_price += 0.01
 
-    dx = chart_w / (len(window) - 1)
+    dx = chart_w / (visible_count - 1)
     state.chart_pixels_per_index = dx
 
-    # =====================================================
+    # -------------------------
     # DRAGGING
-    # =====================================================
+    # -------------------------
     mx, my = pygame.mouse.get_pos()
     mouse_down = pygame.mouse.get_pressed()[0]
     inside_chart = chart_x <= mx <= chart_x + chart_w and chart_y <= my <= chart_y + chart_h
@@ -424,154 +391,357 @@ def render_chart(font, state, screen):
             state.chart_offset_start = state.chart_offset
 
         drag_dx = mx - state.chart_drag_start_x
-        shift = int(drag_dx / dx)
-        state.chart_offset = max(0, min(state.chart_offset_start - shift,
-                                       total_points - visible_count))
+        shift = int(drag_dx / state.chart_pixels_per_index)
+        state.chart_offset = max(0, min(state.chart_offset_start - shift, total_points - visible_count))
     else:
         state.chart_dragging = False
 
-    # ================================================================================
-    # DRAW GRIDLINES
-    # ================================================================================
-    grid_color = (120, 50, 170)
+    # -------------------------
+    # GRID LINES
+    # -------------------------
+    grid_color = (120,50,170)
 
-    def price_to_y(p):
-        return chart_y + chart_h - (p - min_price) / (max_price - min_price) * chart_h
-
-    for val in [max_price, (max_price + min_price) / 2, min_price]:
-        y = price_to_y(val)
+    for value in [max_price, (max_price + min_price)/2, min_price]:
+        norm = (value - min_price) / (max_price - min_price)
+        y = chart_y + chart_h - (norm * chart_h)
         pygame.draw.line(screen, grid_color, (chart_x, y), (chart_x + chart_w, y), 2)
-        screen.blit(font.render(f"${val:.2f}", True, grid_color),
+        screen.blit(font.render(f"${value:.2f}", True, grid_color),
                     (chart_x + chart_w + 10, y - 10))
 
-    # =====================================================
-    # DRAW CANDLES
-    # =====================================================
     def center_x(i):
         return chart_x + i * dx
 
+    # -------------------------
+    # CANDLES
+    # -------------------------
     if state.show_candles:
         for i, e in enumerate(window):
-            x = center_x(i)
+            open_price = e["open"]
+            high_price = e["high"]
+            low_price = e["low"]
+            close_price = e["close"]
 
-            # Clamp candle X so it can NEVER leave the chart box
-            x = clamp(x, chart_x + 2, chart_x + chart_w - 2)
+            def price_to_y(price):
+                normalized = (price - min_price) / (max_price - min_price)
+                return chart_y + chart_h - (normalized * chart_h)
 
-            y_open = price_to_y(e["open"])
-            y_close = price_to_y(e["close"])
-            y_high = price_to_y(e["high"])
-            y_low = price_to_y(e["low"])
+            x_center = center_x(i)
+            y_open = price_to_y(open_price)
+            y_high = price_to_y(high_price)
+            y_low = price_to_y(low_price)
+            y_close = price_to_y(close_price)
 
-            color = (0, 200, 0) if e["close"] >= e["open"] else (255, 80, 80)
+            color = (0, 200, 0) if close_price >= open_price else (255, 80, 80)
 
-            # Clamp width too — prevent giant fat candles
-            bw = min(dx * 0.6, 30)  # <- HARD WIDTH CAP
-            bw = max(bw, 2)  # <- still keep 2px minimum
+            body_width = min(dx * 0.6, dx - 2)
+            body_width = max(body_width, 2)
 
-            # wick
-            pygame.draw.line(screen, color, (x, y_high), (x, y_low), 2)
+            bounds = hybrid_bounds(x_center, body_width, chart_x, chart_w)
+            if not bounds:
+                continue
 
-            # body
+            left, right = bounds
+            body_height = abs(y_open - y_close)
             body_top = min(y_open, y_close)
-            body_h = abs(y_open - y_close)
 
-            # clamp the left/right edges of the body rectangle
-            left = clamp(x - bw / 2, chart_x + 1, chart_x + chart_w - bw - 1)
+            pygame.draw.line(screen, color, (x_center, y_high), (x_center, y_low), 2)
+            pygame.draw.rect(screen, color, (left, body_top, right - left, body_height))
 
-            pygame.draw.rect(screen, color, (left, body_top, bw, body_h))
+    # -------------------------
+    # LINE MODE
+    # -------------------------
     else:
-        # line
         for i in range(len(window)-1):
+            p1 = window[i]["close"]
+            p2 = window[i+1]["close"]
+
+            n1 = (p1 - min_price) / (max_price - min_price)
+            n2 = (p2 - min_price) / (max_price - min_price)
+
             x1 = center_x(i)
             x2 = center_x(i+1)
-            y1 = price_to_y(window[i]["close"])
-            y2 = price_to_y(window[i+1]["close"])
+            y1 = chart_y + chart_h - (n1 * chart_h)
+            y2 = chart_y + chart_h - (n2 * chart_h)
+
             pygame.draw.line(screen, (0,255,200), (x1, y1), (x2, y2), 2)
 
-    # =====================================================
+    # -------------------------
     # VOLUME
-    # =====================================================
-    volume_h = 120
-    volume_y = chart_y + chart_h + 40
-
+    # -------------------------
     if state.show_volume:
         min_v = min(e["volume"] for e in window)
-        max_v = max(e["volume"] for e in window) or 1
+        max_v = max(e["volume"] for e in window)
+        if max_v == min_v:
+            max_v += 1
 
         for i, e in enumerate(window):
-            x = center_x(i)
-            v = e["volume"]
-            prev_close = window[i-1]["close"] if i > 0 else e["close"]
-            color = (0,200,0) if e["close"] >= prev_close else (255,80,80)
+            vol = e["volume"]
+            close_val = e["close"]
+            prev = window[i-1]["close"] if i > 0 else close_val
+            color = (0,200,0) if close_val >= prev else (255,80,80)
 
-            norm = (v - min_v) / (max_v - min_v)
-            bh = norm * volume_h
-            y = volume_y + (volume_h - bh)
+            norm = (vol - min_v) / (max_v - min_v)
+            bar_h = norm * volume_h
+            y = volume_y + (volume_h - bar_h)
 
-            bw = max(min(dx * 0.6, dx - 2), 2)
-            pygame.draw.rect(screen, color, (x - bw/2, y, bw, bh))
+            x_center = center_x(i)
+            bar_w = min(dx * 0.6, dx - 2)
+            bar_w = max(bar_w, 2)
 
-    # =====================================================
+            bounds = hybrid_bounds(x_center, bar_w, chart_x, chart_w)
+            if bounds:
+                left, right = bounds
+                pygame.draw.rect(screen, color, (left, y, right-left, bar_h))
+
+    # -------------------------
     # TIME & DAY LABELS
-    # =====================================================
-    time_y = volume_y + volume_h + 20
-    day_y = time_y + 20
-
+    # -------------------------
     last_tx = -999
+    last_dx = -999
 
     for i, e in enumerate(window):
-        x = center_x(i)
+        px = center_x(i)
+        time_surf = font.render(state.format_time(e["time"]), True, grid_color)
+        day_surf = font.render(f"Day {e['day']}", True, (255,180,0))
 
-        label = state.format_time(e["time"])
-        ts = font.render(label, True, grid_color)
+        if px - last_tx >= time_surf.get_width() + 60:
+            screen.blit(time_surf, (px - time_surf.get_width()//2, time_y))
+            last_tx = px
 
-        if x - last_tx >= ts.get_width() + 50:
-            screen.blit(ts, (x - ts.get_width() // 2, time_y))
-            last_tx = x
-
-        # DAY LABEL
         if i > 0 and e["day"] != window[i-1]["day"]:
-            ds = font.render(f"Day {e['day']}", True, (255,180,0))
-            screen.blit(ds, (x - ds.get_width() // 2, day_y))
+            if px - last_dx >= day_surf.get_width() + 80:
+                screen.blit(day_surf, (px - day_surf.get_width()//2, day_y))
+                last_dx = px
 
-    # =====================================================
+    # -------------------------
     # TOOLTIP
-    # =====================================================
-    mx, my = pygame.mouse.get_pos()
-
-    if chart_x <= mx <= chart_x + chart_w and chart_y <= my <= chart_y + chart_h:
-        idx = max(0, min(int((mx - chart_x) / dx), len(window)-1))
+    # -------------------------
+    if inside_chart:
+        idx = int((mx - chart_x) / dx)
+        idx = max(0, min(idx, len(window)-1))
         e = window[idx]
 
-        tp = [
-            f"Day {e['day']}",
-            f"Time: {state.format_time(e['time'])}",
-            f"Open:  ${e['open']:.2f}",
-            f"High:  ${e['high']:.2f}",
-            f"Low:   ${e['low']:.2f}",
-            f"Close: ${e['close']:.2f}",
-            f"Volume: {e['volume']:,}"
-        ]
+        if state.show_candles:
+            tooltip = [
+                f"Day {e['day']}",
+                f"Time: {state.format_time(e['time'])}",
+                f"Open:  ${e['open']:.2f}",
+                f"High:  ${e['high']:.2f}",
+                f"Low:   ${e['low']:.2f}",
+                f"Close: ${e['close']:.2f}",
+                f"Volume: {e['volume']:,}"
+            ]
+        else:
+            tooltip = [
+                f"Day {e['day']}",
+                f"Time: {state.format_time(e['time'])}",
+                f"Close: ${e['close']:.2f}",
+                f"Volume: {e['volume']:,}"
+            ]
 
-        px = mx
-        py = price_to_y(e["close"])
+        pt = e["close"]
+        norm = (pt - min_price) / (max_price - min_price)
+        y_pt = chart_y + chart_h - (norm * chart_h)
 
-        pygame.draw.line(screen, (255,255,255), (px, chart_y), (px, chart_y + chart_h), 1)
-        pygame.draw.circle(screen, (255,255,0), (px, int(py)), 6)
+        pygame.draw.line(screen, (255,255,255), (mx, chart_y), (mx, chart_y+chart_h), 1)
+        pygame.draw.circle(screen, (255,255,0), (mx, int(y_pt)), 6)
 
         pad = 8
-        tw = max(font.render(t, True, (255,255,255)).get_width() for t in tp) + pad*2
-        th = len(tp) * font.get_height() + pad*2
+        tw = max(font.render(t, True, (255,255,255)).get_width() for t in tooltip) + pad*2
+        th = len(tooltip)*font.get_height() + pad*2
 
-        rect = pygame.Rect(mx + 20, my + 20, tw, th)
+        rect = pygame.Rect(mx+20, my+20, tw, th)
         pygame.draw.rect(screen, (20,20,40), rect)
         pygame.draw.rect(screen, (120,0,160), rect, 2)
 
-        ly = rect.y + pad
-        for t in tp:
-            screen.blit(font.render(t, True, (255,255,255)), (rect.x+pad, ly))
-            ly += font.get_height()
+        ty = rect.y + pad
+        for t in tooltip:
+            screen.blit(font.render(t, True, (255,255,255)), (rect.x+pad, ty))
+            ty += font.get_height()
 
+def render_main_menu(screen, font):
+    menu_running = True
+    start_time = time.time()  # For fade-in + animations
+
+    # Button definitions
+    buttons = [
+        {"text": "START GAME", "action": "start"},
+        {"text": "QUIT",        "action": "quit"}
+    ]
+
+    # Pre-render buttons
+    button_data = []
+    offset = 0
+    for b in buttons:
+        surf = font.render(b["text"], True, (255, 255, 255))
+        rect = surf.get_rect(center=(960, 450 + offset))
+        offset += 120
+        button_data.append({"surf": surf, "rect": rect, "action": b["action"]})
+
+    # FADE-IN SURFACE
+    fade_surface = pygame.Surface((1920, 1080))
+    fade_surface.fill((0, 0, 0))
+
+    while menu_running:
+        elapsed = time.time() - start_time
+        mouse_x, mouse_y = pygame.mouse.get_pos()
+
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                return "quit"
+
+            if event.type == pygame.MOUSEBUTTONDOWN:
+                for b in button_data:
+                    if b["rect"].collidepoint(mouse_x, mouse_y):
+                        return b["action"]
+
+        # BACKGROUND
+        screen.fill((0, 0, 0))
+
+        # TITLE FLOAT ANIMATION
+        float_offset = math.sin(elapsed * 2) * 10  # 10px up/down
+        title = font.render("THIS GAME FUCKING SUCKS", True, (0, 200, 255))
+        title_rect = title.get_rect(center=(960, 200 + float_offset))
+        screen.blit(title, title_rect)
+
+
+        # BUTTONS WITH HOVER ANIMATION
+
+        for b in button_data:
+
+            # Hover glow
+            if b["rect"].collidepoint(mouse_x, mouse_y):
+                glow = int((math.sin(elapsed * 8) + 1) * 60)  # 0–120 brightness pulse
+            else:
+                glow = 0
+
+            bg_color = (70 + glow, 70 + glow, 70 + glow)
+
+            pygame.draw.rect(
+                screen,
+                bg_color,
+                b["rect"].inflate(20, 20),
+                border_radius=10
+            )
+
+            screen.blit(b["surf"], b["rect"])
+
+        # FADE-IN EFFECT
+        if elapsed < 1.0:
+            fade_alpha = int((1 - elapsed) * 255)
+            fade_surface.set_alpha(fade_alpha)
+            screen.blit(fade_surface, (0, 0))
+
+        pygame.display.flip()
+
+def render_pause_menu(screen, font,state):
+    menu_running = True
+    start_time = time.time()  # For fade/animation timing
+
+    buttons = [
+        {"text": "RESUME GAME", "action": "resume"},
+        {"text": "QUIT TO DESKTOP", "action": "quit"},
+        {"text":"TOGGLE CRT", "action":"toggle_crt"},
+
+    ]
+
+    # Pre-render button surfaces
+    button_data = []
+    offset = 0
+    for b in buttons:
+        surf = font.render(b["text"], True, (255, 255, 255))
+        rect = surf.get_rect(center=(960, 540 + offset))
+        offset += 120
+        button_data.append({"surf": surf, "rect": rect, "action": b["action"]})
+
+    # Dark overlay for paused effect
+    overlay = pygame.Surface((1920, 1080))
+    overlay.fill((0, 0, 0))
+    overlay.set_alpha(140)
+    slider_rect, handle_x = draw_slider(overlay,font)  # INITIAL DEFAULT POSITION
+    dragging_slider = False
+
+    while menu_running:
+        elapsed = time.time() - start_time
+        mouse_x, mouse_y = pygame.mouse.get_pos()
+        if dragging_slider:
+            handle_x = max(slider_rect.x, min(mouse_x, slider_rect.x + slider_rect.width))
+
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                return "quit"
+
+            if event.type == pygame.MOUSEBUTTONDOWN:
+                if slider_rect.collidepoint(mouse_x, mouse_y):
+                    dragging_slider = True
+
+                for b in button_data:
+                    if b["rect"].collidepoint(mouse_x, mouse_y):
+                        return b["action"]
+
+            if event.type == pygame.MOUSEBUTTONUP:
+                state.tick_interval
+                dragging_slider = False
+
+                #snap handle to nearest notch
+                total_notches = 10
+                notch_width = slider_rect.width / (total_notches - 1)
+
+                # compute the nearest notch index (0–9)
+                notch_index = round((handle_x - slider_rect.x) / notch_width)
+
+                # clamp for safety
+                notch_index = max(0, min(total_notches - 1, notch_index))
+
+                # convert to levels 1–10
+                slider_level = notch_index + 1
+
+                # snap handle to exact notch pos
+                handle_x = slider_rect.x + notch_index * notch_width
+
+                print(f"SLIDER LEVEL → {slider_level}")
+                state.tick_interval = (11 - slider_level) / 10
+                state.slider_pos = handle_x
+                print(f"Tick Interval: {state.tick_interval}")
+
+
+
+        # DRAW PAUSE OVERLAY
+        screen.blit(overlay, (0, 0))
+
+        # TITLE (floating animation)
+        float_offset = math.sin(elapsed * 2) * 10
+        title = font.render("PAUSED", True, (255, 180, 0))
+        title_rect = title.get_rect(center=(960, 300 + float_offset))
+        screen.blit(title, title_rect)
+
+        # SLIDER
+        slider_rect = draw_slider(overlay,font)[0]  # only need rect for drawing
+        handle = draw_handle(screen, state.slider_pos, slider_rect)
+
+        # BUTTONS
+        for b in button_data:
+
+            # Hover pulse
+            if b["rect"].collidepoint(mouse_x, mouse_y):
+                glow = int((math.sin(elapsed * 8) + 1) * 60)
+            else:
+                glow = 0
+
+            bg_color = (70 + glow, 70 + glow, 70 + glow)
+
+            pygame.draw.rect(
+                screen,
+                bg_color,
+                b["rect"].inflate(25, 25),
+                border_radius=12
+            )
+
+            screen.blit(b["surf"], b["rect"])
+
+
+
+        pygame.display.flip()
 def render_main_menu(screen, font):
     menu_running = True
     start_time = time.time()  # For fade-in + animations

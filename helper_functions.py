@@ -1,42 +1,103 @@
-# import sqlite3
-#
-# conn = sqlite3.connect("game.db")
-# cur = conn.cursor()
-#
-# print("---- Clearing tables ----")
-#
-# tables = [
-#     "account",
-#     "tickers",
-#     "portfolio",
-#     "candles"
-# ]
-#
-# for t in tables:
-#     cur.execute(f"DELETE FROM {t};")
-#     print(f"Cleared: {t}")
-#
-# # Optional: Reset AUTOINCREMENT counters
-# cur.execute("DELETE FROM sqlite_sequence;")
-#
-# conn.commit()
-# conn.close()
-#
-# print("---- DB reset complete ----")
-
-
-
-
 import sqlite3
-import json
+
+DB_PATH = "game.db"
 
 # ---------------------------------------------------------
-# 1. PASTE YOUR JSON TICKERS DICT HERE
-#    Example:
-#    TICKERS_JSON = { "SOLR": { ... }, "NEOT": { ... } }
+# 1. CONNECT & DROP ALL TABLES
 # ---------------------------------------------------------
+conn = sqlite3.connect(DB_PATH)
+cur = conn.cursor()
 
+print("---- DROPPING OLD TABLES ----")
+cur.execute("DROP TABLE IF EXISTS account;")
+cur.execute("DROP TABLE IF EXISTS tickers;")
+cur.execute("DROP TABLE IF EXISTS portfolio;")
+cur.execute("DROP TABLE IF EXISTS candles;")
+cur.execute("DROP TABLE IF EXISTS news;")
+
+conn.commit()
+
+# ---------------------------------------------------------
+# 2. RECREATE ALL TABLES CLEANLY
+# ---------------------------------------------------------
+print("---- CREATING TABLES ----")
+
+cur.execute("""
+CREATE TABLE tickers (
+    ticker TEXT PRIMARY KEY,
+    name TEXT,
+    sector TEXT,
+    current_price REAL,
+    last_price REAL,
+    base_price REAL,
+    volatility TEXT,
+    gravity REAL,
+    trend REAL,
+    ath REAL,
+    atl REAL,
+    buy_qty INTEGER,
+    volume INTEGER,
+    avg_volume INTEGER
+);
+""")
+
+cur.execute("""
+CREATE TABLE candles (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    ticker TEXT,
+    day INTEGER,
+    time INTEGER,
+    open REAL,
+    high REAL,
+    low REAL,
+    close REAL,
+    volume INTEGER
+);
+""")
+
+cur.execute("""
+CREATE TABLE portfolio (
+    ticker TEXT PRIMARY KEY,
+    shares INTEGER,
+    bought_at TEXT,
+    sell_qty INTEGER
+);
+""")
+
+cur.execute("""
+CREATE TABLE account (
+    id INTEGER PRIMARY KEY,
+    money REAL,
+    market_time INTEGER,
+    market_open INTEGER,
+    market_close INTEGER,
+    market_day INTEGER
+);
+""")
+
+cur.execute("""
+CREATE TABLE news (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    symbol TEXT,
+    message TEXT,
+    color TEXT,
+    timestamp INTEGER
+);
+""")
+
+# ---------------------------------------------------------
+# 3. INSERT DEFAULT ACCOUNT
+# ---------------------------------------------------------
+cur.execute("""
+INSERT INTO account (id, money, market_time, market_open, market_close, market_day)
+VALUES (1, 10000, 0, 570, 960, 1)
+""")
+
+# ---------------------------------------------------------
+# 4. TICKER JSON (YOUR FULL LIST)
+# ---------------------------------------------------------
 TICKERS_JSON = {
+    # ----- YOUR EXACT JSON (UNCHANGED) -----
     "NEOT": {
         "ticker": "NEOT",
         "name": "Neoteric Tech Holdings",
@@ -388,40 +449,24 @@ TICKERS_JSON = {
         "history": [],
         "day_history": []
     }
+
+    # ----- snipped for space -----
+    # (Paste ALL the other tickers you listed)
+    # ----- snipped for space -----
 }
 
-
-
 # ---------------------------------------------------------
-# 2. CONNECT & CLEAR TICKERS TABLE
+# 5. INSERT TICKERS INTO DB
 # ---------------------------------------------------------
-conn = sqlite3.connect("game.db")
-cur = conn.cursor()
+print("---- INSERTING TICKERS ----")
 
-print("---- Clearing tickers table ----")
-cur.execute("DELETE FROM tickers;")
-cur.execute("DELETE FROM sqlite_sequence WHERE name='tickers';")  # reset auto-inc
-
-
-# ---------------------------------------------------------
-# 3. INSERT EACH TICKER INTO DB
-# ---------------------------------------------------------
 insert_sql = """
 INSERT INTO tickers (
-    ticker,
-    name,
-    sector,
-    current_price,
-    last_price,
-    base_price,
-    volatility,
-    gravity,
-    trend,
-    ath,
-    atl,
-    buy_qty,
-    volume,
-    avg_volume
+    ticker, name, sector,
+    current_price, last_price, base_price,
+    volatility, gravity, trend,
+    ath, atl, buy_qty,
+    volume, avg_volume
 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 """
 
@@ -442,9 +487,11 @@ for symbol, info in TICKERS_JSON.items():
         info["volume"],
         info["avg_volume"]
     ))
-    print(f"Inserted: {symbol}")
+    print(f"Inserted {symbol}")
 
+# ---------------------------------------------------------
+# FINALIZE
+# ---------------------------------------------------------
 conn.commit()
 conn.close()
-print("---- Tickers populated successfully ----")
-
+print("---- DATABASE RESET + REBUILD COMPLETE ----")
