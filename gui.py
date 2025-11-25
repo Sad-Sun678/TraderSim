@@ -139,6 +139,12 @@ def render_info_panel(font, state, screen):
         qty_text = data["buy_qty"]
         qty_sell_text = state.portfolio[stock_name]["sell_qty"]
         volume_text = data["volume"]
+        # UPDATE ATH / ATL from day_history (OHLC candles)
+        if data["day_history"]:
+            hist_high = max(candle["high"] for candle in data["day_history"])
+            hist_low = min(candle["low"] for candle in data["day_history"])
+            data["ath"] = hist_high
+            data["atl"] = hist_low
 
         if stock_name in portfolio and portfolio[stock_name]["shares"] > 0:
             lst = portfolio[stock_name]["bought_at"]
@@ -808,46 +814,58 @@ def render_news_ticker(screen, font, messages, speed, offset, dt):
     w, h = screen.get_size()
     bar_height = 60
 
-    pygame.draw.rect(screen, (104, 104, 104), (0, h - bar_height, w, bar_height))
+    ticker_bar_rect = pygame.Rect(0, h - bar_height, w, bar_height)
+    pygame.draw.rect(screen, (104, 104, 104), ticker_bar_rect)
 
     if not messages:
-        return offset
+        return offset, {}, ticker_bar_rect
 
-    # --- Pre-render ---
-    surfaces = []
+    click_zones = {}
+
+    # Pre-render
     separator = "   |   "
     sep_surf = font.render(separator, True, (230, 230, 230))
 
+    rendered = []
     for item in messages:
         surf = font.render(item["text"], True, item["color"])
-        surfaces.append(surf)
-        surfaces.append(sep_surf)
+        rendered.append((surf, item))
+        rendered.append((sep_surf, None))
 
-    # --- Draw loop ---
+    # Draw
     x = offset
-    y = h - bar_height + (bar_height // 2 - surfaces[0].get_height() // 2)
+    y = h - bar_height + (bar_height // 2 - rendered[0][0].get_height() // 2)
 
-    total_width = 0
-    for surf in surfaces:
-        screen.blit(surf, (int(x), int(y)))
-        x += surf.get_width()
-        total_width += surf.get_width()
+    for surf, msg in rendered:
+        w_s = surf.get_width()
+        screen.blit(surf, (int(x), y))
+
+        if msg:
+            click_zones[msg["text"]] = pygame.Rect(int(x), h - bar_height, w_s, bar_height)
+
+        x += w_s
+
+    total_width = x - offset
 
     # Move ticker
     offset -= speed * dt
 
-    # --- Remove first message when it fully leaves screen ---
+    # remove after leaving screen
     if messages:
-        first_width = surfaces[0].get_width() + surfaces[1].get_width()
+        first_width = rendered[0][0].get_width()
         if offset < -first_width:
             messages.pop(0)
+            # shift offset forward by that width for alignment
             offset += first_width
 
-    # Loop if empty
-    if offset <= -total_width and messages:
+    # Loop
+    if offset <= -total_width:
         offset = w
 
-    return offset
+    return offset, click_zones, ticker_bar_rect
+
+
+
 
 
 

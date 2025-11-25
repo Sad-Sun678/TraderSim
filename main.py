@@ -1,7 +1,9 @@
+import sys
+
 import file_functions as ff
 import random
 import pygame
-
+import time
 import gui
 import math
 import numpy
@@ -20,13 +22,13 @@ class GameState:
         for name, data in self.tickers.items():
             data.setdefault("day_history", [])
             data.setdefault("volume_cap", data[
-                "avg_volume"] * 12)  # <-- add this
+                "avg_volume"] * 12),
+            data.setdefault("day_history", []),
+            data.setdefault("last_breakout_time", -9999)
+
         self.global_events = ff.get_json("game","global_events")
         self.company_events = ff.get_json("game","company_events")
         self.news_messages = []
-        for name, data in self.tickers.items():
-            data.setdefault("day_history", [])
-
         self.selected_stock = None
         self.buy_button_rect = None
         self.sell_button_rect = None
@@ -152,13 +154,18 @@ class GameState:
             # 3. VOLATILITY REGIME
             # --------------------------------------------
             vol_map = {
-                "low": 0.002,
-                "medium": 0.008,
-                "high": 0.025
+                "low": (0.003, 0.015),
+                "medium": (0.015, 0.06),
+                "high": (0.04, 0.14)
             }
 
+            # MULTIPLIER FIRST
             vol_multiplier = max(0.75, min(3.0, data["volume"] / data["avg_volume"]))
-            volatility_force = random.gauss(0, vol_map[vol_cat]) * vol_multiplier
+
+            sigma_min, sigma_max = vol_map[vol_cat]
+            sigma = random.uniform(sigma_min, sigma_max)
+
+            volatility_force = random.gauss(0, sigma) * vol_multiplier
 
             # --------------------------------------------
             # 4. ORDER PRESSURE
@@ -263,80 +270,55 @@ class GameState:
 
             new_price = max(0.01, current_price + change)
             data["current_price"] = round(new_price, 2)
-            # ---------------------------------------------------
-            # BREAKOUT DETECTION + NEWS + FOLLOW-THROUGH FORCE
-            # ---------------------------------------------------
 
-            # Use previous tick's close (NOT new_price)
+            # --------------------------------------------
+            # 9. BREAKOUT DETECTION + NEWS
+            # --------------------------------------------
             last_close = current_price
-
-            # Recent price history BEFORE mutation
             recent_prices = data.get("recent_prices", [])
 
-            if len(recent_prices) >= 20:
+            cooldown = 120
+            t_now = self.market_time
 
-                # Look at last ~30 points
-                window = recent_prices[-30:]
-                recent_high = max(window)
-                recent_low = min(window)
+            if t_now - data.get("last_breakout_time", -9999) >= cooldown:
+
+                if len(recent_prices) >= 20:
+
+                    window = recent_prices[-30:]
+                    recent_high = max(window)
+                    recent_low = min(window)
+
+                    breakout_up = last_close > recent_high * 1.01
+                    breakout_down = last_close < recent_low * 0.99
+
+                    if breakout_up:
+                        breakout_force = last_close * 0.004
+                        volatility_force *= 1.5
+                        data["trend"] += last_close * 0.002
+                        data["last_breakout_time"] = t_now
+
+                        self.news_messages.append({
+                            "text": f"{name} breaks resistance! Bullish breakout!",
+                            "color": (0, 255, 0)
+                        })
 
 
-                breakout_up = last_close > recent_high * 1.01
-                breakout_down = last_close < recent_low * 0.99
+                    elif breakout_down:
+                        breakout_force = -last_close * 0.004
+                        volatility_force *= 1.6
+                        data["trend"] -= last_close * 0.002
+                        data["last_breakout_time"] = t_now
+                        self.news_messages.append({
+                            "text": f"{name} breaks support! Bearish breakdown!",
+                            "color": (255, 80, 80)
+                        })
 
 
-                # -----------------------------
-                # BULLISH BREAKOUT
-                # -----------------------------
-                if breakout_up:
-                    breakout_force = abs(last_close * 0.004)  # +0.4%
-                    volatility_force *= 1.5
-                    data["trend"] += last_close * 0.002
+                    change += breakout_force
 
-                    # NEWS
-                    self.news_messages.append({
-                        "text": f"{name} breaks resistance! Bullish breakout!",
-                        "color": (0, 255, 0)
-                    })
-
-                    print(">>> NEWS SENT (BULLISH BREAKOUT) <<<")
-
-                    recent_prices.append(last_close)
-                    data["recent_prices"] = recent_prices[-200:]
-
-                    # Only fire once
-                    breakout_up = False
-
-                # -----------------------------
-                # BEARISH BREAKOUT
-                # -----------------------------
-                elif breakout_down:
-                    breakout_force = -abs(last_close * 0.004) # 4%
-                    volatility_force *= 1.6
-                    data["trend"] -= last_close * 0.002
-
-                    # NEWS
-                    self.news_messages.append({
-                        "text": f"{name} breaks support! Bearish breakdown!",
-                        "color": (255, 80, 80)
-                    })
-
-                    print(">>> NEWS SENT (BEARISH BREAKDOWN) <<<")
-                    # ---- NEW: reset breakout baseline ----
-                    recent_prices.append(last_close)
-                    data["recent_prices"] = recent_prices[-200:]
-
-                    # Only fire once
-                    breakout_down = False
-
-                # Apply to final price change
-                change += breakout_force
-
-            # Append AFTER logic
+            # push history ONCE (fixed)
             recent_prices.append(last_close)
-            if len(recent_prices) > 200:
-                recent_prices.pop(0)
-
+            recent_prices = recent_prices[-200:]
             data["recent_prices"] = recent_prices
 
             # --------------------------------------------
@@ -528,8 +510,11 @@ while running:
     for event in pygame.event.get():
 
         if event.type == pygame.QUIT:
+            t0 = time.time()
             state.autosave()
+            print("SAVE TIME:", time.time() - t0)
             running = False
+            break  # <–– prevents zombie frame
 
         # ESC menu
         if event.type == pygame.KEYDOWN:
@@ -814,7 +799,23 @@ while running:
 
 
     ticker_speed = 160
-    ticker_x = gui.render_news_ticker(game_surface, ticker_font, state.news_messages, ticker_speed, ticker_x, dt)
+    ticker_x, ticker_zones, ticker_bar = gui.render_news_ticker(
+        game_surface, ticker_font,
+        state.news_messages,
+        ticker_speed,
+        ticker_x,
+        dt
+    )
+
+    mx, my = pygame.mouse.get_pos()
+
+    if pygame.mouse.get_pressed()[0]:
+        if ticker_bar.collidepoint(mx, my):  # anywhere in bar
+            for text, rect in ticker_zones.items():
+                if rect.collidepoint(mx, my):
+                    symbol = text.split()[0]
+                    state.selected_stock = symbol
+                    print("OPENED CHART FROM NEWS:", symbol)
 
     # CRT
     if crt_enabled:
@@ -838,4 +839,8 @@ while running:
     pygame.display.flip()
 
 
+pygame.mixer.quit()
 pygame.quit()
+sys.exit()
+
+
