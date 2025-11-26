@@ -74,7 +74,25 @@ class GameState:
         self.minus_button_buy_rect = None
         self.max_button_buy_rect = None
         self.max_button_sell_rect = None
+        self.buy_button_pressed = False
+        self.minus_buy_pressed = False
+        self.plus_buy_pressed = False
+        self.max_buy_pressed = False
 
+        self.minus_sell_pressed = False
+        self.plus_sell_pressed = False
+        self.max_sell_pressed = False
+
+        self.button_cooldowns = {
+            "buy": 0,
+            "plus_buy": 0,
+            "minus_buy": 0,
+            "max_buy": 0,
+            "sell": 0,
+            "plus_sell": 0,
+            "minus_sell": 0,
+            "max_sell": 0
+        }
         # ---- Screens ----
         self.show_portfolio_screen = False
         self.show_volume = False
@@ -477,7 +495,7 @@ class GameState:
             pass
 
     def handle_sell(self):
-        self.sell_stock(self.selected_stock,state.portfolio[self.selected_stock]['sell_qty'])
+        self.sell_stock(self.selected_stock, self.portfolio[self.selected_stock]['sell_qty'])
 
     def market_is_open(self):
         return self.market_open <= self.market_time <= self.market_close
@@ -907,6 +925,7 @@ while running:
             else:
                 mx, my = event.pos
 
+
             # ==================================================
             # Candle/Chart toggle
             # ==================================================
@@ -985,18 +1004,22 @@ while running:
                     state.tickers[stock_name]["buy_qty"] = 0
                     continue
 
-            # BUY + / -
+            # BUY +
             if state.add_button_buy_rect and state.add_button_buy_rect.collidepoint(mx, my):
+                state.button_cooldowns["plus_buy"] = 0.08
                 state.tickers[state.selected_stock]["buy_qty"] += 1
                 tick_sound_up.play()
 
+            # BUY -
             if state.minus_button_buy_rect and state.minus_button_buy_rect.collidepoint(mx, my):
+                state.button_cooldowns["minus_buy"] = 0.08
                 if state.tickers[state.selected_stock]["buy_qty"] > 0:
                     state.tickers[state.selected_stock]["buy_qty"] -= 1
                     tick_sound_down.play()
 
-            # MAX BUY
+            # BUY MAX
             if state.max_button_buy_rect and state.max_button_buy_rect.collidepoint(mx, my):
+                state.button_cooldowns["max_buy"] = 0.08
                 s = state.selected_stock
                 cash = state.account["money"]
                 price = state.tickers[s]["current_price"]
@@ -1004,6 +1027,7 @@ while running:
 
             # BUY
             if state.buy_button_rect and state.buy_button_rect.collidepoint(mx, my):
+                state.button_cooldowns["buy"] = 0.08
                 s = state.selected_stock
                 before = state.portfolio[s]["shares"]
                 if state.market_time >= state.market_open and state.market_time <= state.market_close:
@@ -1011,8 +1035,9 @@ while running:
                 if state.portfolio[s]["shares"] > before:
                     purchase_sound.play()
 
-            # SELL
+            # ==================== SELL BUTTON ====================
             if state.sell_button_rect and state.sell_button_rect.collidepoint(mx, my):
+                state.button_cooldowns["sell"] = 0.10
                 if state.is_market_open:
                     try:
                         state.handle_sell()
@@ -1020,28 +1045,37 @@ while running:
                     except IndexError:
                         pass
 
-            # SELL + / -
+            # ==================== SELL - BUTTON ====================
             if state.minus_button_sell_rect and state.minus_button_sell_rect.collidepoint(mx, my):
+                state.button_cooldowns["minus_sell"] = 0.10
                 s = state.selected_stock
                 if state.portfolio[s]["sell_qty"] > 0:
                     state.portfolio[s]["sell_qty"] -= 1
                     tick_sound_down.play()
 
+            # ==================== SELL + BUTTON ====================
             if state.add_button_sell_rect and state.add_button_sell_rect.collidepoint(mx, my):
+                state.button_cooldowns["plus_sell"] = 0.10
                 s = state.selected_stock
                 if state.portfolio[s]["sell_qty"] < state.portfolio[s]["shares"]:
                     state.portfolio[s]["sell_qty"] += 1
                     tick_sound_up.play()
-            # MAX SELL
+
+            # ==================== MAX SELL ====================
             if state.max_button_sell_rect and state.max_button_sell_rect.collidepoint(mx, my):
+                state.button_cooldowns["max_sell"] = 0.10
                 s = state.selected_stock
-                cash = state.account["money"]
-                price = state.tickers[s]["current_price"]
                 state.portfolio[s]["sell_qty"] = math.floor(state.portfolio[s]["shares"])
+
     # -----------------------------------------------------
     # TICK UPDATE
     # -----------------------------------------------------
     dt = clock.tick(120) / 1000
+    # Update cooldown timers
+    for key in state.button_cooldowns:
+        if state.button_cooldowns[key] > 0:
+            state.button_cooldowns[key] -= dt
+
     state.tick_timer += dt
     save_timer += dt
 
@@ -1143,6 +1177,16 @@ while running:
     # FPS
     fps = int(clock.get_fps())
     screen.blit(fps_font.render(f"FPS: {fps}",True,(0,255,0)),(10,10))
+    # ---- RESET CLICK ANIMATION FLAGS ----
+    state.buy_button_pressed = False
+    state.minus_buy_pressed = False
+    state.plus_buy_pressed = False
+    state.max_buy_pressed = False
+
+    state.sell_button_pressed = False
+    state.minus_sell_pressed = False
+    state.plus_sell_pressed = False
+    state.max_sell_pressed = False
 
     pygame.display.flip()
 

@@ -490,8 +490,22 @@ for symbol, info in TICKERS_JSON.items():
     print(f"Inserted {symbol}")
 
 # ---------------------------------------------------------
-# FINALIZE
+# 6. INSERT EMPTY PORTFOLIO ROWS FOR EVERY TICKER
 # ---------------------------------------------------------
+print("---- INITIALIZING PORTFOLIO ----")
+
+for symbol in TICKERS_JSON.keys():
+    cur.execute("""
+        INSERT INTO portfolio (ticker, shares, bought_at, sell_qty)
+        VALUES (?, ?, ?, ?)
+    """, (
+        symbol,
+        0,
+        "[]",     # empty JSON list
+        0
+    ))
+    print(f"Portfolio row created for {symbol}")
+
 conn.commit()
 conn.close()
 print("---- DATABASE RESET + REBUILD COMPLETE ----")

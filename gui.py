@@ -185,42 +185,70 @@ def render_info_panel(font, asset, screen, state):
             screen.blit(surf, (text_x, text_y))
             text_y += line_spacing
 
-        # BUY CLUSTER ------------------------------------------------------
+        # ==================== BUY CLUSTER ====================
         buy_rect = pygame.Rect(buy_x, cluster_y, buy_w, cluster_h)
-        screen.blit(asset.buy_button_up, (buy_x, cluster_y))
+        if state.button_cooldowns["buy"] > 0:
+            screen.blit(asset.buy_button_down, (buy_x, cluster_y))
+        else:
+            screen.blit(asset.buy_button_up, (buy_x, cluster_y))
 
         minus_buy_rect = pygame.Rect(minus_buy_x, cluster_y, minus_w, cluster_h)
-        plus_buy_rect  = pygame.Rect(plus_buy_x,  cluster_y, plus_w,  cluster_h)
+        plus_buy_rect = pygame.Rect(plus_buy_x, cluster_y, plus_w, cluster_h)
 
-        screen.blit(asset.minus_up, (minus_buy_x, cluster_y))
-        screen.blit(asset.plus_up,  (plus_buy_x,  cluster_y))
+        if state.button_cooldowns["minus_buy"] > 0:
+            screen.blit(asset.minus_down, (minus_buy_x, cluster_y))
+        else:
+            screen.blit(asset.minus_up, (minus_buy_x, cluster_y))
+
+        if state.button_cooldowns["plus_buy"] > 0:
+            screen.blit(asset.plus_down, (plus_buy_x, cluster_y))
+        else:
+            screen.blit(asset.plus_up, (plus_buy_x, cluster_y))
 
         max_buy_rect = pygame.Rect(max_buy_x, max_y, max_buy_w, cluster_h)
-        screen.blit(asset.max_up, (max_buy_x, max_y))
+        if state.button_cooldowns["max_buy"] > 0:
+            screen.blit(asset.max_down, (max_buy_x, max_y))
+        else:
+            screen.blit(asset.max_up, (max_buy_x, max_y))
 
-        # SELL CLUSTER -----------------------------------------------------
+        # ==================== SELL CLUSTER ====================
         sell_rect = pygame.Rect(sell_x, cluster_y, sell_w, cluster_h)
-        pygame.draw.rect(screen, (200,80,80), sell_rect)  # Replace with sell art later
+        if state.button_cooldowns["sell"] > 0:
+            screen.blit(asset.buy_button_down, (sell_x, cluster_y))  # TEMP SELLDOWN
+        else:
+            screen.blit(asset.buy_button_up, (sell_x, cluster_y))  # TEMP SELLUP
 
         minus_sell_rect = pygame.Rect(minus_sell_x, cluster_y, minus_w, cluster_h)
-        plus_sell_rect  = pygame.Rect(plus_sell_x,  cluster_y, plus_w,  cluster_h)
+        plus_sell_rect = pygame.Rect(plus_sell_x, cluster_y, plus_w, cluster_h)
 
-        screen.blit(asset.minus_up, (minus_sell_x, cluster_y))
-        screen.blit(asset.plus_up,  (plus_sell_x,  cluster_y))
+        if state.button_cooldowns["minus_sell"] > 0:
+            screen.blit(asset.minus_down, (minus_sell_x, cluster_y))
+        else:
+            screen.blit(asset.minus_up, (minus_sell_x, cluster_y))
+
+        if state.button_cooldowns["plus_sell"] > 0:
+            screen.blit(asset.plus_down, (plus_sell_x, cluster_y))
+        else:
+            screen.blit(asset.plus_up, (plus_sell_x, cluster_y))
 
         max_sell_rect = pygame.Rect(max_sell_x, max_y, max_sell_w, cluster_h)
-        screen.blit(asset.max_up, (max_sell_x, max_y))
+        if state.button_cooldowns["max_sell"] > 0:
+            screen.blit(asset.max_down, (max_sell_x, max_y))
+        else:
+            screen.blit(asset.max_up, (max_sell_x, max_y))
 
-        # REGISTER BUTTON HITBOXES ----------------------------------------
-        state.add_button_buy_rect = plus_buy_rect
-        state.minus_button_buy_rect = minus_buy_rect
+        # ==================== REGISTER HITBOXES ====================
         state.buy_button_rect = buy_rect
+        state.minus_button_buy_rect = minus_buy_rect
+        state.add_button_buy_rect = plus_buy_rect
         state.max_button_buy_rect = max_buy_rect
 
-        state.add_button_sell_rect = plus_sell_rect
-        state.minus_button_sell_rect = minus_sell_rect
         state.sell_button_rect = sell_rect
+        state.minus_button_sell_rect = minus_sell_rect
+        state.add_button_sell_rect = plus_sell_rect
         state.max_button_sell_rect = max_sell_rect
+
+
 
         # Text overlays
         screen.blit(font.render(f"BUY:{qty_text}", True, (0,0,0)),
@@ -1026,6 +1054,8 @@ def render_chart(font, state, screen):
     def center_x(index):
         return chart_x + index * dx
 
+
+
     # ---------------------------------------------------
     # PRICE GRID (min, mid, max) with labels on the right
     # ---------------------------------------------------
@@ -1092,7 +1122,36 @@ def render_chart(font, state, screen):
             continue
 
         pygame.draw.line(screen, grid_color, (x, chart_y), (x, chart_y + chart_height), 1)
+    # -------------------------
+    # DRAGGING
+    # -------------------------
+    mx, my = pygame.mouse.get_pos()
+    mouse_down = pygame.mouse.get_pressed()[0]
 
+    inside_chart = (
+            chart_x <= mx <= chart_x + chart_width and
+            chart_y <= my <= chart_y + chart_height
+    )
+
+    if mouse_down and inside_chart:
+        if not state.chart_dragging:
+            state.chart_dragging = True
+            state.chart_drag_start_x = mx
+            state.chart_offset_start = state.chart_offset
+
+        drag_dx = mx - state.chart_drag_start_x
+
+        # convert pixel movement → chart index movement
+        if state.chart_pixels_per_index > 0:
+            shift = int(drag_dx / state.chart_pixels_per_index)
+        else:
+            shift = 0
+
+        max_offset = max(0, total_points - visible_count)
+        state.chart_offset = max(0, min(state.chart_offset_start - shift, max_offset))
+
+    else:
+        state.chart_dragging = False
     # ----------------------------------------
     # 9. DRAW CHART (candles or line)
     # ----------------------------------------
