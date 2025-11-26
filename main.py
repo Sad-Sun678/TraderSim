@@ -100,7 +100,7 @@ class GameState:
         # =====================================================
         # 5. CHART INTERACTION SYSTEM
         # =====================================================
-        self.chart_zoom = 1.0
+        self.chart_zoom = 1
         self.chart_offset = 0
         self.chart_dragging = False
         self.chart_drag_start_x = 0
@@ -220,7 +220,6 @@ class GameState:
             # --------------------------------------------
             order_force = data["buy_qty"] * 0.0005
             data["volume"] += data["buy_qty"] * 12
-            data["buy_qty"] = max(0, data["buy_qty"] - 1)
 
             # --------------------------------------------
             # 5. SECTOR SENTIMENT
@@ -370,48 +369,45 @@ class GameState:
             data["recent_prices"] = recent_prices
 
             # --------------------------------------------
-            # BUILD HOURLY OHLC CANDLES
+            # BUILD 5-MINUTE OHLC CANDLES (WITH MICRO-TICKS)
             # --------------------------------------------
+
+            # Simulate 5 internal 1-minute price movements
+            micro_prices = []
+            micro_price = current_price
+            for i in range(5):
+                # small internal movement inside the candle
+                micro_change = random.gauss(0, sigma * 0.4)
+                micro_price = max(0.01, micro_price + micro_change)
+                micro_prices.append(micro_price)
+
+            # Add the micro-moves into the buffer
+            data["ohlc_buffer"].extend(micro_prices)
+
+            # Add the final 5-minute closing price
             data["ohlc_buffer"].append(new_price)
 
-            # Current hour (0–23)
-            current_hour = int(self.market_time // 60)
-            # Last candle's hour
-            if data["day_history"]:
-                last_hour = int(data["day_history"][-1]["time"] // 60)
-            else:
-                last_hour = -1
+            prices = data["ohlc_buffer"]
 
-            # Make a new candle when the hour changes OR the day changes
-            making_new_candle = (
-                    last_hour != current_hour or
-                    (data["day_history"] and data["day_history"][-1]["day"] != self.game_day)
-            )
+            # Build proper OHLC candle
+            entry = {
+                "day": self.game_day,
+                "time": int(self.market_time),  # 5,10,15,20...
+                "open": prices[0],
+                "high": max(prices),
+                "low": min(prices),
+                "close": prices[-1],
+                "volume": data["volume"]
+            }
 
-            if making_new_candle:
-                prices = data["ohlc_buffer"]
-                entry = {
-                    "day": self.game_day,
-                    "time": int(self.market_time),  # still store exact minute, good for sorting
-                    "open": prices[0],
-                    "high": max(prices),
-                    "low": min(prices),
-                    "close": prices[-1],
-                    "volume": data["volume"]
-                }
-                data["day_history"].append(entry)
-                data["ohlc_buffer"] = [new_price]
-            else:
-                # Update the current hourly candle
-                last = data["day_history"][-1]
-                prices = data["ohlc_buffer"]
-                last["close"] = prices[-1]
-                last["high"] = max(last["high"], max(prices))
-                last["low"] = min(last["low"], min(prices))
-                last["volume"] = data["volume"]
+            data["day_history"].append(entry)
 
-            # Keep history reasonable (DB stores everything)
-            if len(data["day_history"]) > 500:
+            # Reset buffer for next 5-minute candle
+            data["ohlc_buffer"] = []
+
+            # Trim in-memory history
+            MAX_CANDLES = 2000
+            if len(data["day_history"]) > MAX_CANDLES:
                 data["day_history"].pop(0)
 
     def _advance_game_day(self):
@@ -472,6 +468,7 @@ class GameState:
 
     def handle_buy(self):
         try:
+            print("button clicked")
             selected_stock = self.selected_stock
             self.buy_stock(selected_stock,self.tickers[selected_stock]["buy_qty"])
             print("handler passing to buy function")
@@ -486,10 +483,20 @@ class GameState:
         return self.market_open <= self.market_time <= self.market_close
 
     def save_candles_to_db(self):
+
         conn = sqlite3.connect("game.db")
         cur = conn.cursor()
+        MAX_CANDLES = 2000
 
         for name, data in self.tickers.items():
+
+            # Trim RAM
+            data["day_history"] = data["day_history"][-MAX_CANDLES:]
+
+            # DELETE ONCE — this is the important fix
+            cur.execute("DELETE FROM candles WHERE ticker = ?", (name,))
+
+            # Insert trimmed history
             for c in data["day_history"]:
                 cur.execute("""
                             INSERT INTO candles (ticker, day, time, open, high, low, close, volume)
@@ -505,14 +512,13 @@ class GameState:
                                 c["volume"]
                             ))
 
-            # keep in-memory candles; DB already has them
-            data["day_history"] = data["day_history"][-500:]
-
         conn.commit()
         conn.close()
 
     def load_from_db(self):
-
+        '''
+        grabs data from game.db and assigns it to self.portfolio, self.account and self.tickers
+        '''
 
         conn = sqlite3.connect("game.db")
         cur = conn.cursor()
@@ -557,23 +563,23 @@ class GameState:
 
         self.tickers = {}  # overwrite JSON version
 
-        for r in rows:
-            t = r[0]
+        for row in rows:
+            t = row[0]
             self.tickers[t] = {
-                "ticker": r[0],
-                "name": r[1],
-                "sector": r[2],
-                "current_price": r[3],
-                "last_price": r[4],
-                "base_price": r[5],
-                "volatility": r[6],
-                "gravity": r[7],
-                "trend": r[8],
-                "ath": r[9],
-                "atl": r[10],
-                "buy_qty": r[11],
-                "volume": r[12],
-                "avg_volume": r[13],
+                "ticker": row[0],
+                "name": row[1],
+                "sector": row[2],
+                "current_price": row[3],
+                "last_price": row[4],
+                "base_price": row[5],
+                "volatility": row[6],
+                "gravity": row[7],
+                "trend": row[8],
+                "ath": row[9],
+                "atl": row[10],
+                "buy_qty": row[11],
+                "volume": row[12],
+                "avg_volume": row[13],
 
                 # ALWAYS EMPTY AT LOAD
                 "history": [],
@@ -620,8 +626,7 @@ class GameState:
         conn.close()
 
     def autosave(self):
-
-
+        ''' Writes back self.account, self.portfolio,self.tickers to db and calls the save candles to db function'''
         # Sync account dict with current state
         self.account["market_time"] = self.market_time
         self.account["market_open"] = self.market_open
@@ -712,9 +717,9 @@ class GameState:
         # -------------------------
         # 6. TINY JSON BACKUP
         # -------------------------
-        ff.write_json("game", "tickers", self.tickers)
-        ff.write_json("player", "account", self.account)
-        ff.write_json("player", "portfolio", self.portfolio)
+        # ff.write_json("game", "tickers", self.tickers)
+        # ff.write_json("player", "account", self.account)
+        # ff.write_json("player", "portfolio", self.portfolio)
 
     def simulate_days(self, days):
         """Fast-forward the market by a number of days for debugging."""
@@ -740,25 +745,47 @@ class GameState:
             h -= 12
 
         return f"{h}:{m:02d} {suffix}"
+
+class GameAssets:
+    def __init__(self):
+        self.minus_up   = pygame.image.load("assets/buttons/minus_button.png").convert_alpha()
+        self.minus_down = pygame.image.load("assets/buttons/minus_button_pushed.png").convert_alpha()
+        self.plus_up    = pygame.image.load("assets/buttons/plus_button.png").convert_alpha()
+        self.plus_down  = pygame.image.load("assets/buttons/plus_button_pushed.png").convert_alpha()
+        self.max_up = pygame.image.load("assets/buttons/max_button.png").convert_alpha()
+        self.max_down = pygame.image.load("assets/buttons/max_button_pushed.png").convert_alpha()
+        self.buy_button_up = pygame.image.load("assets/buttons/buy_button.png").convert_alpha()
+        self.buy_button_down = pygame.image.load("assets/buttons/buy_button_pushed.png").convert_alpha()
 pygame.init()
 pygame.mixer.init()
 screen = pygame.display.set_mode((1920,1080), pygame.DOUBLEBUF | pygame.SCALED)
 
 clock = pygame.time.Clock()
+#------------------------
+# SOUNDS
+#------------------------
 fps_font = pygame.font.Font("assets/fonts/VCR_OSD_MONO_1.001.ttf", 18)
-
 purchase_sound = pygame.mixer.Sound("assets/sounds/purchase_sound.mp3")
 tick_sound_up = pygame.mixer.Sound("assets/sounds/tick_sound_up.wav")
 tick_sound_down = pygame.mixer.Sound("assets/sounds/tick_sound_down.wav")
 chart_sound = pygame.mixer.Sound("assets/sounds/chart_pop.mp3")
 sale_sound = pygame.mixer.Sound("assets/sounds/sale_sound.mp3")
+#------------------------
+#FONTS
+#------------------------
 ticker_font = pygame.font.Font("assets/fonts/VCR_OSD_MONO_1.001.ttf", 16)
 header_font = pygame.font.Font("assets/fonts/VCR_OSD_MONO_1.001.ttf", 20)
 info_font = pygame.font.Font("assets/fonts/VCR_OSD_MONO_1.001.ttf", 20)
 menu_font = pygame.font.Font("assets/fonts/VCR_OSD_MONO_1.001.ttf", 50)
 sidebar_font = pygame.font.Font("assets/fonts/VCR_OSD_MONO_1.001.ttf", 50)
 info_bar_font = pygame.font.Font("assets/fonts/VCR_OSD_MONO_1.001.ttf", 16)
+
 choice = gui.render_main_menu(screen, menu_font)
+#------------------------
+# ART
+#------------------------
+
+
 pixel_cache = None
 pixel_cache_timer = 0
 pixel_update_rate = 4   # update every 4 frames
@@ -767,6 +794,7 @@ if choice == "quit":
     quit()
 running = True
 state = GameState()
+assets = GameAssets()
 ticker_x = 1920  # start fully off-screen to the right
 save_timer = 0
 save_interval = 10  # seconds
@@ -847,7 +875,7 @@ while running:
 
         # Chart zoom
         if event.type == pygame.MOUSEWHEEL:
-
+            print("ZOOMY ZOOM ZOOM")
             # store old zoom BEFORE changing
             state.prev_chart_zoom = state.chart_zoom
 
@@ -856,7 +884,7 @@ while running:
             else:
                 state.chart_zoom /= 1.15
 
-            state.chart_zoom = max(0.1, min(8.0, state.chart_zoom))
+            state.chart_zoom = max(0.1, min(200.0, state.chart_zoom))
 
         # Chart pan via keys
         if event.type == pygame.KEYDOWN:
@@ -986,9 +1014,11 @@ while running:
             # SELL
             if state.sell_button_rect and state.sell_button_rect.collidepoint(mx, my):
                 if state.is_market_open:
-
-                    state.handle_sell()
-                    sale_sound.play()
+                    try:
+                        state.handle_sell()
+                        sale_sound.play()
+                    except IndexError:
+                        pass
 
             # SELL + / -
             if state.minus_button_sell_rect and state.minus_button_sell_rect.collidepoint(mx, my):
@@ -1073,7 +1103,7 @@ while running:
     click_zones = gui.render_tickers(ticker_font, state.tickers, game_surface)
     sidebar_data = gui.render_side_bar(game_surface, info_bar_font, state)
     gui.render_chart(info_font, state, game_surface)
-    gui.render_info_panel(info_font, state, game_surface)
+    gui.render_info_panel(info_font, assets, game_surface,state)
 
 
     ticker_speed = 160

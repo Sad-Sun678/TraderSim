@@ -82,12 +82,14 @@ def render_header(font, account, screen, time_left, portfolio_value,state):
     portfolio_surface = font.render(portfolio_text,True,(51,255,0))
     screen.blit(portfolio_surface,(1400,30))
 
-def render_info_panel(font, state, screen):
+
+
+def render_info_panel(font, asset, screen, state):
+
     if state.selected_stock is None:
         return
     else:
         # chart constants used for alignment
-
 
         stock_name = state.selected_stock
         data = state.tickers[stock_name]
@@ -106,13 +108,12 @@ def render_info_panel(font, state, screen):
         buy_w = 200
         sell_w = 200
 
-        # chart constants used for alignment
         chart_x = 250
         chart_w = 1230
-        chart_right = chart_x + chart_w#1480
+        chart_right = chart_x + chart_w
 
         buy_x = chart_x
-        sell_x = chart_right - (sell_w + 120) #1280
+        sell_x = chart_right - (sell_w + 120)
 
         minus_w = 50
         plus_w = 50
@@ -129,6 +130,7 @@ def render_info_panel(font, state, screen):
         max_sell_x = minus_sell_x
         max_y = cluster_y + cluster_h + 10
 
+        # TEXT DATA
         name_text = data["name"]
         ticker_text = data["ticker"]
         sector_text = data["sector"]
@@ -138,8 +140,9 @@ def render_info_panel(font, state, screen):
         trend_text = data["trend"]
         qty_text = data["buy_qty"]
         qty_sell_text = state.portfolio[stock_name]["sell_qty"]
-        volume_text = data["volume"]
-        # UPDATE ATH / ATL from day_history (OHLC candles)
+        volume_text = data['volume']
+
+        # Update ATH / ATL from candle data
         if data["day_history"]:
             hist_high = max(candle["high"] for candle in data["day_history"])
             hist_low = min(candle["low"] for candle in data["day_history"])
@@ -150,13 +153,16 @@ def render_info_panel(font, state, screen):
             lst = portfolio[stock_name]["bought_at"]
             avg_price = sum(lst) / len(lst)
             right_lines = [
-                f"Shares Owned : {portfolio[stock_name]['shares']} ",
+                f"Shares Owned : {portfolio[stock_name]['shares']}",
                 f"Avg Purchase Price: ${avg_price:.2f}",
-                f"Volume:{volume_text}"
+                f"Volume: {volume_text}"
             ]
         else:
-            right_lines = ["Shares Owned: 0", "Avg Purchase Price: N/A",
-                f"Volume:{volume_text}"]
+            right_lines = [
+                "Shares Owned: 0",
+                "Avg Purchase Price: N/A",
+                f"Volume: {volume_text}"
+            ]
 
         lines = [
             f"{name_text} ({ticker_text})",
@@ -167,46 +173,45 @@ def render_info_panel(font, state, screen):
             f"Trend: {trend_text:.2f}"
         ]
 
-        # draw info text
+        # Right column text
         for line in right_lines:
-            surf = font.render(line, True, (255, 255, 255))
+            surf = font.render(line, True, (255,255,255))
             screen.blit(surf, (right_text_x, right_text_y))
             right_text_y += 40
 
+        # Left column text
         for line in lines:
-            surf = font.render(line, True, (255, 255, 255))
+            surf = font.render(line, True, (255,255,255))
             screen.blit(surf, (text_x, text_y))
             text_y += line_spacing
 
-        # BUY cluster
+        # BUY CLUSTER ------------------------------------------------------
         buy_rect = pygame.Rect(buy_x, cluster_y, buy_w, cluster_h)
-        pygame.draw.rect(screen, (0, 200, 80), buy_rect)
+        screen.blit(asset.buy_button_up, (buy_x, cluster_y))
 
         minus_buy_rect = pygame.Rect(minus_buy_x, cluster_y, minus_w, cluster_h)
-        plus_buy_rect = pygame.Rect(plus_buy_x, cluster_y, plus_w, cluster_h)
+        plus_buy_rect  = pygame.Rect(plus_buy_x,  cluster_y, plus_w,  cluster_h)
 
-        pygame.draw.rect(screen, (231, 22, 255), minus_buy_rect)
-        pygame.draw.rect(screen, (255, 216, 25), plus_buy_rect)
+        screen.blit(asset.minus_up, (minus_buy_x, cluster_y))
+        screen.blit(asset.plus_up,  (plus_buy_x,  cluster_y))
 
         max_buy_rect = pygame.Rect(max_buy_x, max_y, max_buy_w, cluster_h)
-        pygame.draw.rect(screen, (93, 226, 231), max_buy_rect)
+        screen.blit(asset.max_up, (max_buy_x, max_y))
 
-        # SELL cluster
+        # SELL CLUSTER -----------------------------------------------------
         sell_rect = pygame.Rect(sell_x, cluster_y, sell_w, cluster_h)
-        pygame.draw.rect(screen, (200, 80, 80), sell_rect)
+        pygame.draw.rect(screen, (200,80,80), sell_rect)  # Replace with sell art later
 
         minus_sell_rect = pygame.Rect(minus_sell_x, cluster_y, minus_w, cluster_h)
-        plus_sell_rect = pygame.Rect(plus_sell_x, cluster_y, plus_w, cluster_h)
+        plus_sell_rect  = pygame.Rect(plus_sell_x,  cluster_y, plus_w,  cluster_h)
 
-        pygame.draw.rect(screen, (231, 22, 255), minus_sell_rect)
-        pygame.draw.rect(screen, (255, 216, 25), plus_sell_rect)
+        screen.blit(asset.minus_up, (minus_sell_x, cluster_y))
+        screen.blit(asset.plus_up,  (plus_sell_x,  cluster_y))
 
         max_sell_rect = pygame.Rect(max_sell_x, max_y, max_sell_w, cluster_h)
-        pygame.draw.rect(screen, (93, 226, 231), max_sell_rect)
+        screen.blit(asset.max_up, (max_sell_x, max_y))
 
-        # register button hitboxes
-
-
+        # REGISTER BUTTON HITBOXES ----------------------------------------
         state.add_button_buy_rect = plus_buy_rect
         state.minus_button_buy_rect = minus_buy_rect
         state.buy_button_rect = buy_rect
@@ -217,347 +222,19 @@ def render_info_panel(font, state, screen):
         state.sell_button_rect = sell_rect
         state.max_button_sell_rect = max_sell_rect
 
-        # text overlays
-        screen.blit(font.render("-", True, (0, 0, 0)),
-                    (minus_buy_x + 20, cluster_y + 15))
-        screen.blit(font.render("+", True, (0, 0, 0)),
-                    (plus_buy_x + 20, cluster_y + 15))
-        screen.blit(font.render(f"BUY:{qty_text}", True, (0, 0, 0)),
+        # Text overlays
+        screen.blit(font.render(f"BUY:{qty_text}", True, (0,0,0)),
                     (buy_x + 80, cluster_y + 15))
-        screen.blit(font.render("MAX", True, (0, 0, 0)),
+
+        screen.blit(font.render("MAX", True, (0,0,0)),
                     (max_buy_x + 135, max_y + 15))
 
-        screen.blit(font.render("-", True, (0, 0, 0)),
-                    (minus_sell_x + 20, cluster_y + 15))
-        screen.blit(font.render("+", True, (0, 0, 0)),
-                    (plus_sell_x + 20, cluster_y + 15))
-        screen.blit(font.render(f"SELL:{qty_sell_text}", True, (0, 0, 0)),
+        screen.blit(font.render(f"SELL:{qty_sell_text}", True, (0,0,0)),
                     (sell_x + 80, cluster_y + 15))
-        screen.blit(font.render("MAX", True, (0, 0, 0)),
+
+        screen.blit(font.render("MAX", True, (0,0,0)),
                     (max_sell_x + 135, max_y + 15))
 
-def render_chart(font, state, screen):
-    if state.selected_stock is None:
-        return
-
-    # -------------------------
-    # HYBRID BAR BOUNDS HELPER
-    # -------------------------
-    def hybrid_bounds(x_center, bar_w, chart_x, chart_w):
-        left = x_center - bar_w / 2
-        right = x_center + bar_w / 2
-
-        # If bar is too narrow to matter -> hide it (STRICT mode)
-        if bar_w < 2:
-            return None
-
-        # Fully inside -> draw normal
-        if left >= chart_x and right <= chart_x + chart_w:
-            return (left, right)
-
-        # Partially outside -> CLAMP it
-        clamped_left = max(chart_x, left)
-        clamped_right = min(chart_x + chart_w, right)
-
-        if clamped_right > clamped_left:
-            return (clamped_left, clamped_right)
-
-        return None
-
-    # -------------------------
-    # CONSTANTS
-    # -------------------------
-    import pygame
-    chart_x = 190
-    chart_w = 1230
-    chart_y = 350
-    chart_h = 300
-    panel_rect = pygame.Rect(chart_x, 90, chart_w, chart_h + 420)
-
-    stock = state.selected_stock
-    history = state.tickers[stock]["day_history"]
-
-    # -------------------------
-    # BUTTONS
-    # -------------------------
-    button_y = 310
-    button_x = 1040
-    volume_btn = pygame.Rect(button_x, button_y, 155, 30)
-    candles_btn = pygame.Rect(button_x + 200, button_y, 155, 30)
-
-    state.toggle_volume_rect = volume_btn
-    state.toggle_candles_rect = candles_btn
-
-    if len(history) < 2:
-        return
-
-    # -------------------------
-    # PANEL FIRST
-    # -------------------------
-    pygame.draw.rect(screen, (40, 0, 80), panel_rect)
-
-    # -------------------------
-    # BUTTONS (draw AFTER panel)
-    # -------------------------
-    pygame.draw.rect(screen, (80, 30, 120), volume_btn)
-    pygame.draw.rect(screen, (80, 30, 120), candles_btn)
-
-    screen.blit(font.render(
-        "Volume: ON" if state.show_volume else "Volume: OFF",
-        True, (255,255,255)),
-        (volume_btn.x+8, volume_btn.y+5)
-    )
-    screen.blit(font.render(
-        "Candles: ON" if state.show_candles else "Candles: OFF",
-        True, (255,255,255)),
-        (candles_btn.x+8, candles_btn.y+5)
-    )
-
-    volume_h = 120
-    volume_y = chart_y + chart_h + 40
-    time_y = volume_y + volume_h + 20
-    day_y = time_y + 20
-
-    # -------------------------
-    # SORT / FILTER DATA
-    # -------------------------
-    history = sorted(history, key=lambda e: (e["day"], e["time"]))
-    max_day = history[-1]["day"]
-    min_day = max_day - 6
-    window_data = [e for e in history if min_day <= e["day"] <= max_day]
-    total_points = len(window_data)
-    if total_points < 2:
-        return
-
-    # -------------------------
-    # TRUE MOUSE-CENTERED ZOOM
-    # -------------------------
-    if getattr(state, "prev_chart_zoom", None) != state.chart_zoom:
-
-        old_zoom = getattr(state, "prev_chart_zoom", state.chart_zoom)
-
-        old_visible = max(10, min(total_points, int(total_points / old_zoom)))
-        new_visible = max(10, min(total_points, int(total_points / state.chart_zoom)))
-
-        mx, my = pygame.mouse.get_pos()
-
-        if chart_x <= mx <= chart_x + chart_w:
-            mouse_ratio = (mx - chart_x) / chart_w
-        else:
-            mouse_ratio = 0.5
-
-        mouse_data_index = state.chart_offset + mouse_ratio * old_visible
-
-        new_offset = int(mouse_data_index - new_visible * mouse_ratio)
-        new_offset = max(0, min(total_points - new_visible, new_offset))
-
-        state.chart_offset = new_offset
-        visible_count = new_visible
-        window = window_data[new_offset:new_offset + visible_count]
-
-        state.prev_chart_zoom = state.chart_zoom
-
-    else:
-        visible_count = max(10, min(total_points, int(total_points / state.chart_zoom)))
-        window = window_data[state.chart_offset: state.chart_offset + visible_count]
-
-    # -------------------------
-    # PRICE SCALE
-    # -------------------------
-    if state.show_candles:
-        min_price = min(e["low"] for e in window)
-        max_price = max(e["high"] for e in window)
-    else:
-        min_price = min(e["close"] for e in window)
-        max_price = max(e["close"] for e in window)
-
-    if max_price == min_price:
-        max_price += 0.01
-
-    dx = chart_w / (visible_count - 1)
-    state.chart_pixels_per_index = dx
-
-    # -------------------------
-    # DRAGGING
-    # -------------------------
-    mx, my = pygame.mouse.get_pos()
-    mouse_down = pygame.mouse.get_pressed()[0]
-    inside_chart = chart_x <= mx <= chart_x + chart_w and chart_y <= my <= chart_y + chart_h
-
-    if mouse_down and inside_chart:
-        if not state.chart_dragging:
-            state.chart_dragging = True
-            state.chart_drag_start_x = mx
-            state.chart_offset_start = state.chart_offset
-
-        drag_dx = mx - state.chart_drag_start_x
-        shift = int(drag_dx / state.chart_pixels_per_index)
-        state.chart_offset = max(0, min(state.chart_offset_start - shift, total_points - visible_count))
-    else:
-        state.chart_dragging = False
-
-    # -------------------------
-    # GRID LINES
-    # -------------------------
-    grid_color = (120,50,170)
-
-    for value in [max_price, (max_price + min_price)/2, min_price]:
-        norm = (value - min_price) / (max_price - min_price)
-        y = chart_y + chart_h - (norm * chart_h)
-        pygame.draw.line(screen, grid_color, (chart_x, y), (chart_x + chart_w, y), 2)
-        screen.blit(font.render(f"${value:.2f}", True, grid_color),
-                    (chart_x + chart_w + 10, y - 10))
-
-    def center_x(i):
-        return chart_x + i * dx
-
-    # -------------------------
-    # CANDLES
-    # -------------------------
-    if state.show_candles:
-        for i, e in enumerate(window):
-            open_price = e["open"]
-            high_price = e["high"]
-            low_price = e["low"]
-            close_price = e["close"]
-
-            def price_to_y(price):
-                normalized = (price - min_price) / (max_price - min_price)
-                return chart_y + chart_h - (normalized * chart_h)
-
-            x_center = center_x(i)
-            y_open = price_to_y(open_price)
-            y_high = price_to_y(high_price)
-            y_low = price_to_y(low_price)
-            y_close = price_to_y(close_price)
-
-            color = (0, 200, 0) if close_price >= open_price else (255, 80, 80)
-
-            body_width = min(dx * 0.6, dx - 2)
-            body_width = max(body_width, 2)
-
-            bounds = hybrid_bounds(x_center, body_width, chart_x, chart_w)
-            if not bounds:
-                continue
-
-            left, right = bounds
-            body_height = abs(y_open - y_close)
-            body_top = min(y_open, y_close)
-
-            pygame.draw.line(screen, color, (x_center, y_high), (x_center, y_low), 2)
-            pygame.draw.rect(screen, color, (left, body_top, right - left, body_height))
-
-    # -------------------------
-    # LINE MODE
-    # -------------------------
-    else:
-        for i in range(len(window)-1):
-            p1 = window[i]["close"]
-            p2 = window[i+1]["close"]
-
-            n1 = (p1 - min_price) / (max_price - min_price)
-            n2 = (p2 - min_price) / (max_price - min_price)
-
-            x1 = center_x(i)
-            x2 = center_x(i+1)
-            y1 = chart_y + chart_h - (n1 * chart_h)
-            y2 = chart_y + chart_h - (n2 * chart_h)
-
-            pygame.draw.line(screen, (0,255,200), (x1, y1), (x2, y2), 2)
-
-    # -------------------------
-    # VOLUME
-    # -------------------------
-    if state.show_volume:
-        min_v = min(e["volume"] for e in window)
-        max_v = max(e["volume"] for e in window)
-        if max_v == min_v:
-            max_v += 1
-
-        for i, e in enumerate(window):
-            vol = e["volume"]
-            close_val = e["close"]
-            prev = window[i-1]["close"] if i > 0 else close_val
-            color = (0,200,0) if close_val >= prev else (255,80,80)
-
-            norm = (vol - min_v) / (max_v - min_v)
-            bar_h = norm * volume_h
-            y = volume_y + (volume_h - bar_h)
-
-            x_center = center_x(i)
-            bar_w = min(dx * 0.6, dx - 2)
-            bar_w = max(bar_w, 2)
-
-            bounds = hybrid_bounds(x_center, bar_w, chart_x, chart_w)
-            if bounds:
-                left, right = bounds
-                pygame.draw.rect(screen, color, (left, y, right-left, bar_h))
-
-    # -------------------------
-    # TIME & DAY LABELS
-    # -------------------------
-    last_tx = -999
-    last_dx = -999
-
-    for i, e in enumerate(window):
-        px = center_x(i)
-        time_surf = font.render(state.format_time(e["time"]), True, grid_color)
-        day_surf = font.render(f"Day {e['day']}", True, (255,180,0))
-
-        if px - last_tx >= time_surf.get_width() + 60:
-            screen.blit(time_surf, (px - time_surf.get_width()//2, time_y))
-            last_tx = px
-
-        if i > 0 and e["day"] != window[i-1]["day"]:
-            if px - last_dx >= day_surf.get_width() + 80:
-                screen.blit(day_surf, (px - day_surf.get_width()//2, day_y))
-                last_dx = px
-
-    # -------------------------
-    # TOOLTIP
-    # -------------------------
-    if inside_chart:
-        idx = int((mx - chart_x) / dx)
-        idx = max(0, min(idx, len(window)-1))
-        e = window[idx]
-
-        if state.show_candles:
-            tooltip = [
-                f"Day {e['day']}",
-                f"Time: {state.format_time(e['time'])}",
-                f"Open:  ${e['open']:.2f}",
-                f"High:  ${e['high']:.2f}",
-                f"Low:   ${e['low']:.2f}",
-                f"Close: ${e['close']:.2f}",
-                f"Volume: {e['volume']:,}"
-            ]
-        else:
-            tooltip = [
-                f"Day {e['day']}",
-                f"Time: {state.format_time(e['time'])}",
-                f"Close: ${e['close']:.2f}",
-                f"Volume: {e['volume']:,}"
-            ]
-
-        pt = e["close"]
-        norm = (pt - min_price) / (max_price - min_price)
-        y_pt = chart_y + chart_h - (norm * chart_h)
-
-        pygame.draw.line(screen, (255,255,255), (mx, chart_y), (mx, chart_y+chart_h), 1)
-        pygame.draw.circle(screen, (255,255,0), (mx, int(y_pt)), 6)
-
-        pad = 8
-        tw = max(font.render(t, True, (255,255,255)).get_width() for t in tooltip) + pad*2
-        th = len(tooltip)*font.get_height() + pad*2
-
-        rect = pygame.Rect(mx+20, my+20, tw, th)
-        pygame.draw.rect(screen, (20,20,40), rect)
-        pygame.draw.rect(screen, (120,0,160), rect, 2)
-
-        ty = rect.y + pad
-        for t in tooltip:
-            screen.blit(font.render(t, True, (255,255,255)), (rect.x+pad, ty))
-            ty += font.get_height()
 
 def render_main_menu(screen, font):
     menu_running = True
@@ -957,6 +634,620 @@ def draw_handle(screen,handle_x,slider_rect):
 
 def get_slider_value(slider_rect,handle_x):
     return int((handle_x - slider_rect.x) / slider_rect.width * 100)  # Value from 0 to 100
+
+# def render_chart(font, state, screen):
+#     import pygame
+#
+#     if state.selected_stock is None:
+#         return
+#
+#     # ---------------------------------------------------
+#     # CONSTANTS (Your exact layout)
+#     # ---------------------------------------------------
+#     chart_x = 190
+#     chart_w = 1230
+#     chart_y = 350
+#     chart_h = 300
+#
+#     # Background panel
+#     panel_rect = pygame.Rect(chart_x, 90, chart_w, chart_h + 420)
+#     pygame.draw.rect(screen, (40, 0, 80), panel_rect)
+#
+#     stock = state.selected_stock
+#     history = state.tickers[stock]["day_history"]
+#
+#     if len(history) < 2:
+#         return
+#
+#     # ---------------------------------------------------
+#     # SORT + FILTER LAST 7 DAYS
+#     # ---------------------------------------------------
+#     history = sorted(history, key=lambda e: (e["day"], e["time"]))
+#     max_day = history[-1]["day"]
+#     min_day = max_day - 6
+#     full_window = [e for e in history if min_day <= e["day"] <= max_day]
+#     total_points = len(full_window)
+#     if total_points < 2:
+#         return
+#
+#     # ---------------------------------------------------
+#     # TRADINGVIEW ZOOM MODEL
+#     # zoom ↑ = fewer candles
+#     # zoom ↓ = more candles
+#     # ---------------------------------------------------
+#     zoom = state.chart_zoom
+#     zoom = max(0.2, min(200.0, zoom))    # HARD LIMITS
+#     state.chart_zoom = zoom
+#
+#     visible_count = int(total_points / zoom)
+#     visible_count = max(1, min(total_points, visible_count))
+#
+#     # Clamp offset
+#     state.chart_offset = max(0, min(state.chart_offset, total_points - visible_count))
+#
+#     # DATA TO DISPLAY
+#     window = full_window[state.chart_offset : state.chart_offset + visible_count]
+#
+#     # ---------------------------------------------------
+#     # DX (candle horizontal space)
+#     # ---------------------------------------------------
+#     if visible_count == 1:
+#         dx = chart_w
+#     else:
+#         dx = chart_w / (visible_count - 1)
+#
+#     # ---------------------------------------------------
+#     # PRICE RANGE FOR Y-SCALE
+#     # ---------------------------------------------------
+#     min_price = min(e["low"] for e in window)
+#     max_price = max(e["high"] for e in window)
+#     if max_price == min_price:
+#         max_price += 0.01
+#
+#     def price_to_y(price):
+#         n = (price - min_price) / (max_price - min_price)
+#         return chart_y + chart_h - (n * chart_h)
+#
+#     # ---------------------------------------------------
+#     # CENTER X
+#     # Perfectly centers each candle inside chart area
+#     # ---------------------------------------------------
+#     def center_x(i):
+#         return chart_x + i * dx
+#
+#     # ---------------------------------------------------
+#     # DRAW GRID LINES (3 levels)
+#     # ---------------------------------------------------
+#     grid_color = (120, 50, 170)
+#     for v in (max_price, (max_price + min_price) / 2, min_price):
+#         y = price_to_y(v)
+#         pygame.draw.line(screen, grid_color, (chart_x, y), (chart_x+chart_w, y), 2)
+#         screen.blit(font.render(f"${v:.2f}", True, grid_color), (chart_x + chart_w + 10, y - 10))
+#
+#     # ---------------------------------------------------
+#     # DRAW CANDLES (TradingView style)
+#     # ---------------------------------------------------
+#     if state.show_candles:
+#         for i, e in enumerate(window):
+#             x = center_x(i)
+#
+#             o = e["open"]
+#             h = e["high"]
+#             l = e["low"]
+#             c = e["close"]
+#
+#             y_open = price_to_y(o)
+#             y_close = price_to_y(c)
+#             y_high = price_to_y(h)
+#             y_low = price_to_y(l)
+#
+#             color = (0, 200, 0) if c >= o else (255, 80, 80)
+#
+#             # Candle body width (never tiny)
+#             body_w = max(dx * 0.8, 3)
+#             left = x - body_w / 2
+#
+#             body_h = abs(y_open - y_close)
+#             body_top = min(y_open, y_close)
+#
+#             # Wicks
+#             pygame.draw.line(screen, color, (x, y_high), (x, y_low), 2)
+#
+#             # Body
+#             pygame.draw.rect(screen, color, (left, body_top, body_w, body_h))
+#
+#     # ---------------------------------------------------
+#     # LINE MODE
+#     # ---------------------------------------------------
+#     else:
+#         pts = []
+#         for i, e in enumerate(window):
+#             x = center_x(i)
+#             y = price_to_y(e["close"])
+#             pts.append((x, y))
+#         pygame.draw.lines(screen, (0,255,200), False, pts, 2)
+#
+#     # ---------------------------------------------------
+#     # VOLUME (aligned to candle X)
+#     # ---------------------------------------------------
+#     if state.show_volume:
+#         vol_h = 120
+#         vol_y = chart_y + chart_h + 40
+#
+#         min_v = min(e["volume"] for e in window)
+#         max_v = max(e["volume"] for e in window)
+#         if max_v == min_v:
+#             max_v += 1
+#
+#         for i, e in enumerate(window):
+#             x = center_x(i)
+#             v = e["volume"]
+#
+#             h = (v - min_v) / (max_v - min_v)
+#             bar_h = h * vol_h
+#             y_top = vol_y + (vol_h - bar_h)
+#
+#             bar_w = max(dx * 0.8, 3)
+#             left = x - bar_w/2
+#
+#             color = (0,200,0) if e["close"] >= e["open"] else (255,80,80)
+#             pygame.draw.rect(screen, color, (left, y_top, bar_w, bar_h))
+#
+#     # ---------------------------------------------------
+#     # TOOLTIP (mouse over)
+#     # ---------------------------------------------------
+#     mx, my = pygame.mouse.get_pos()
+#     inside_chart = (chart_x <= mx <= chart_x+chart_w and chart_y <= my <= chart_y+chart_h)
+#
+#     if inside_chart and visible_count > 1:
+#         idx = int((mx - chart_x) / dx)
+#         idx = max(0, min(idx, len(window)-1))
+#         e = window[idx]
+#
+#         tooltip = [
+#             f"Day {e['day']}",
+#             f"Time: {state.format_time(e['time'])}",
+#             f"Open:  ${e['open']:.2f}",
+#             f"High:  ${e['high']:.2f}",
+#             f"Low:   ${e['low']:.2f}",
+#             f"Close: ${e['close']:.2f}",
+#             f"Volume: {e['volume']:,}",
+#         ]
+#
+#         y_pt = price_to_y(e["close"])
+#         pygame.draw.line(screen, (255,255,255), (mx, chart_y), (mx, chart_y+chart_h), 1)
+#         pygame.draw.circle(screen, (255,255,0), (mx, int(y_pt)), 6)
+#
+#         pad = 8
+#         tw = max(font.render(t, True, (255,255,255)).get_width() for t in tooltip) + pad*2
+#         th = len(tooltip)*font.get_height() + pad*2
+#
+#         rect = pygame.Rect(mx+20, my+20, tw, th)
+#         pygame.draw.rect(screen, (20,20,40), rect)
+#         pygame.draw.rect(screen, (120,0,160), rect, 2)
+#
+#         y = rect.y + pad
+#         for t in tooltip:
+#             screen.blit(font.render(t, True, (255,255,255)), (rect.x+pad, y))
+#             y += font.get_height()
+def select_timeframe_from_dx(pixel_width_per_candle):
+    """
+    Selects the appropriate candle timeframe based on dx (pixels per candle)
+    using TradingView-style logic.
+    """
+
+    dx = pixel_width_per_candle
+
+    if dx >= 6:
+        return 5      # 5 minutes
+    elif dx >= 3:
+        return 15     # 15 minutes
+    elif dx >= 1.5:
+        return 30     # 30 minutes
+    elif dx >= 0.75:
+        return 60     # 1 hour
+    elif dx >= 0.4:
+        return 120    # 2 hours
+    elif dx >= 0.2:
+        return 240    # 4 hours
+    else:
+        return 1440   # 1 day (approx full market day)
+def aggregate_candles(candle_list, base_minutes, target_minutes):
+    """
+    Compresses 5-minute candles into larger timeframe candles.
+    For example: 5m → 15m, 30m, 1h, etc.
+
+    candle_list: list of dicts with keys:
+        day, time, open, high, low, close, volume
+    base_minutes: the resolution of your simulation (5)
+    target_minutes: what timeframe to compress to (15, 30, 60, etc)
+    """
+
+    candles_per_bucket = target_minutes // base_minutes
+    aggregated = []
+    buffer = []
+
+    for candle in candle_list:
+        buffer.append(candle)
+
+        if len(buffer) == candles_per_bucket:
+            aggregated.append({
+                "day": buffer[0]["day"],
+                "time": buffer[0]["time"],  # start time of bucket
+                "open": buffer[0]["open"],
+                "high": max(c["high"] for c in buffer),
+                "low": min(c["low"] for c in buffer),
+                "close": buffer[-1]["close"],
+                "volume": sum(c["volume"] for c in buffer)
+            })
+            buffer = []
+
+    return aggregated
+def render_chart(font, state, screen):
+    import pygame
+
+    # ----------------------------------------
+    # 1. EXIT IF NO STOCK SELECTED
+    # ----------------------------------------
+    if state.selected_stock is None:
+        return
+    # Initialize once so the zoom system doesn't crash
+    if not hasattr(state, "prev_chart_zoom"):
+        state.prev_chart_zoom = state.chart_zoom
+
+    # ----------------------------------------
+    # 2. LAYOUT CONSTANTS
+    # ----------------------------------------
+    chart_x = 190
+    chart_width = 1230
+    chart_y = 350
+    chart_height = 400 # was 350
+
+    # Background panel
+    panel_rect = pygame.Rect(chart_x-8, 90, chart_width+ 12, 350 + 420)
+    pygame.draw.rect(screen, (40, 0, 80), panel_rect)
+    # ----------------------------------------
+    # BUTTONS (Candle Mode + Volume Toggle)
+    # ----------------------------------------
+    button_y = 310
+    button_x = 1040
+
+    volume_btn = pygame.Rect(button_x, button_y, 155, 30)
+    candles_btn = pygame.Rect(button_x + 200, button_y, 155, 30)
+
+    # Save rects for click detection in your event loop
+    state.toggle_volume_rect = volume_btn
+    state.toggle_candles_rect = candles_btn
+
+    # Draw buttons
+    pygame.draw.rect(screen, (80, 30, 120), volume_btn)
+    pygame.draw.rect(screen, (80, 30, 120), candles_btn)
+
+    # Volume label
+    volume_label = "Volume: ON" if state.show_volume else "Volume: OFF"
+    screen.blit(
+        font.render(volume_label, True, (255, 255, 255)),
+        (volume_btn.x + 8, volume_btn.y + 5)
+    )
+
+    # Candle label
+    candles_label = "Candles: ON" if state.show_candles else "Candles: OFF"
+    screen.blit(
+        font.render(candles_label, True, (255, 255, 255)),
+        (candles_btn.x + 8, candles_btn.y + 5)
+    )
+
+    # ----------------------------------------
+    # 3. LOAD PRICE HISTORY
+    # ----------------------------------------
+    stock_name = state.selected_stock
+    history = state.tickers[stock_name]["day_history"]
+
+    if len(history) < 2:
+        return
+
+    # ----------------------------------------
+    # 4. SORT + FILTER LAST 7 DAYS
+    # ----------------------------------------
+    history = sorted(history, key=lambda entry: (entry["day"], entry["time"]))
+
+    max_day = history[-1]["day"]
+    min_day = max_day - 6
+
+    full_window = [
+        entry for entry in history
+        if min_day <= entry["day"] <= max_day
+    ]
+
+    total_points = len(full_window)
+    if total_points < 2:
+        return
+
+    # -------------------------
+    # TRUE MOUSE-CENTERED ZOOM
+    # -------------------------
+
+    # clamp zoom
+    # TRUE MOUSE-CENTERED ZOOM
+    zoom = max(0.1, min(20.0, state.chart_zoom))
+    state.chart_zoom = zoom
+
+    total_points = len(full_window)
+
+    old_zoom = getattr(state, "prev_chart_zoom", state.chart_zoom)
+    old_visible = max(10, min(total_points, int(total_points / old_zoom)))
+    new_visible = max(10, min(total_points, int(total_points / state.chart_zoom)))
+
+    mx, my = pygame.mouse.get_pos()
+
+    if chart_x <= mx <= chart_x + chart_width:
+        mouse_ratio = (mx - chart_x) / chart_width
+    else:
+        mouse_ratio = 0.5
+
+    # UPDATE OFFSET IF ZOOM CHANGED
+    if state.chart_zoom != state.prev_chart_zoom:
+        mouse_data_index = state.chart_offset + mouse_ratio * old_visible
+        new_offset = int(mouse_data_index - new_visible * mouse_ratio)
+        new_offset = max(0, min(total_points - new_visible, new_offset))
+        state.chart_offset = new_offset
+
+    visible_count = new_visible
+    state.prev_chart_zoom = state.chart_zoom
+
+    visible_entries = full_window[state.chart_offset: state.chart_offset + visible_count]
+
+    # ----------------------------------------
+    # 6. dx (spacing between candles)
+    # ----------------------------------------
+    if visible_count <= 1:
+        dx = chart_width
+    else:
+        dx = chart_width / (visible_count - 1)
+    # Debug: see how many candles and how wide they are at this zoom
+
+
+    # ----------------------------------------
+    # 7. PRICE RANGE (for candle vertical scaling)
+    # ----------------------------------------
+    lowest_price = min(entry["low"] for entry in visible_entries)
+    highest_price = max(entry["high"] for entry in visible_entries)
+
+    if highest_price == lowest_price:
+        highest_price += 0.01   # avoid divide-by-zero
+
+    def price_to_y(price_value):
+        normalized = (price_value - lowest_price) / (highest_price - lowest_price)
+        return chart_y + chart_height - (normalized * chart_height)
+
+    # ----------------------------------------
+    # 8. CENTER X CALCULATOR
+    # ----------------------------------------
+    def center_x(index):
+        return chart_x + index * dx
+
+    # ---------------------------------------------------
+    # PRICE GRID (min, mid, max) with labels on the right
+    # ---------------------------------------------------
+    grid_color = (120, 50, 170)  # dim purple neon
+
+    levels = [
+        highest_price,
+        (highest_price + lowest_price) / 2,
+        lowest_price
+    ]
+
+    for level_price in levels:
+        y = price_to_y(level_price)
+
+        # grid line
+        pygame.draw.line(
+            screen, grid_color,
+            (chart_x, y),
+            (chart_x + chart_width, y),
+            2
+        )
+
+        # right-side label
+        label_surface = font.render(f"${level_price:.2f}", True, grid_color)
+        screen.blit(label_surface, (chart_x + chart_width + 10, y - 10))
+
+    # ==========================
+    # GRID LINES
+    # ==========================
+
+    grid_color = (120, 50, 170)  # dim purple
+
+    # ---- horizontal price levels ----
+    num_levels = 6  # clean even divisions
+    price_step = (highest_price - lowest_price) / num_levels
+
+    for i in range(num_levels + 1):
+        price_value = lowest_price + price_step * i
+        y = price_to_y(price_value)
+        pygame.draw.line(screen, grid_color, (chart_x, y), (chart_x + chart_width, y), 1)
+
+    # ---- vertical candle-aligned grid ----
+    # choose spacing based on zoom so it doesn't get too dense
+    if dx >= 60:
+        grid_every = 1  # every candle
+    elif dx >= 30:
+        grid_every = 2
+    elif dx >= 15:
+        grid_every = 5
+    elif dx >= 7:
+        grid_every = 10
+    else:
+        grid_every = 20  # zoomed out — coarse grid
+
+    for idx in range(0, visible_count, grid_every):
+        x = chart_x + idx * dx
+
+        # skip left edge
+        if abs(x - chart_x) < 1:
+            continue
+
+        # skip right edge
+        if abs(x - (chart_x + chart_width)) < 1:
+            continue
+
+        pygame.draw.line(screen, grid_color, (x, chart_y), (x, chart_y + chart_height), 1)
+
+    # ----------------------------------------
+    # 9. DRAW CHART (candles or line)
+    # ----------------------------------------
+    if state.show_candles:
+
+        # ------------------ CANDLES (your working version) ------------------
+        for index, candle in enumerate(visible_entries):
+
+            open_price = candle["open"]
+            high_price = candle["high"]
+            low_price = candle["low"]
+            close_price = candle["close"]
+
+            y_open = price_to_y(open_price)
+            y_close = price_to_y(close_price)
+            y_high = price_to_y(high_price)
+            y_low = price_to_y(low_price)
+
+            x_center = center_x(index)
+
+            candle_color = (0, 200, 0) if close_price >= open_price else (255, 80, 80)
+
+            if dx < 2:
+                pygame.draw.line(screen, candle_color, (x_center, y_high), (x_center, y_low), 1)
+                continue
+
+            elif dx < 5:
+                body_width = 2
+            else:
+                body_width = dx * 0.7
+
+            body_left = x_center - body_width / 2
+            body_height = abs(y_open - y_close)
+            body_top = min(y_open, y_close)
+
+            pygame.draw.line(screen, candle_color, (x_center, y_high), (x_center, y_low), 2)
+
+            pygame.draw.rect(screen, candle_color, (body_left, body_top, body_width, body_height))
+
+    else:
+        # ------------------ LINE CHART MODE ------------------
+        # Use CLOSE prices only
+        points = []
+        for index, entry in enumerate(visible_entries):
+            x = center_x(index)
+            y = price_to_y(entry["close"])
+            points.append((x, y))
+
+        # Draw connecting line
+        if len(points) > 1:
+            pygame.draw.lines(screen, (255, 255, 255), False, points, 2)
+    # ----------------------------------------
+    # 10. VOLUME BARS (under candles)
+    # ----------------------------------------
+    if state.show_volume:
+        # Volume area sits directly BELOW the price chart
+        vol_x = chart_x
+        vol_y = chart_y + chart_height +5 #Spacing between chart and volume
+        vol_w = chart_width
+        vol_h = 120
+
+        # Draw background panel so you can see them clearly
+        pygame.draw.rect(screen, (25, 0, 40), (vol_x-8, vol_y, vol_w+12, vol_h))
+
+        # Find max volume for scaling
+        max_vol = max(e["volume"] for e in visible_entries)
+
+        if max_vol <= 0:
+            max_vol = 1
+
+        for index, entry in enumerate(visible_entries):
+            volume = entry["volume"]
+            height_ratio = volume / max_vol
+            bar_height = height_ratio * vol_h
+
+            x_center = center_x(index)
+
+            # Bar width proportional to candle width
+            if dx < 2:
+                bar_width = 1
+            elif dx < 5:
+                bar_width = 2
+            else:
+                bar_width = dx * 0.6
+
+            bar_left = x_center - bar_width / 2
+            bar_top = vol_y + vol_h - bar_height
+
+            # Color matching candle direction
+            bar_color = (0, 180, 0) if entry["close"] >= entry["open"] else (200, 60, 60)
+
+            pygame.draw.rect(screen, bar_color, (bar_left, bar_top, bar_width, bar_height))
+
+    # ----------------------------------------------------
+    # UNIVERSAL TOOLTIP (works for both candle + line mode)
+    # ----------------------------------------------------
+    mx, my = pygame.mouse.get_pos()
+
+    mouse_in_chart = (
+        chart_x <= mx <= chart_x + chart_width and
+        chart_y <= my <= chart_y + chart_height
+    )
+
+    if mouse_in_chart and len(visible_entries) > 1:
+
+        hover_index = int((mx - chart_x) / dx)
+        hover_index = max(0, min(hover_index, len(visible_entries) - 1))
+
+        entry = visible_entries[hover_index]
+
+        # Candle or line mode text
+        if state.show_candles:
+            tooltip_lines = [
+                f"Day:   {entry['day']}",
+                f"Time:  {state.format_time(entry['time'])}",
+                f"Open:  ${entry['open']:.2f}",
+                f"High:  ${entry['high']:.2f}",
+                f"Low:   ${entry['low']:.2f}",
+                f"Close: ${entry['close']:.2f}",
+                f"Volume: {entry['volume']:,}"
+            ]
+        else:
+            tooltip_lines = [
+                f"Day:   {entry['day']}",
+                f"Time:  {state.format_time(entry['time'])}",
+                f"Close: ${entry['close']:.2f}",
+                f"Volume: {entry['volume']:,}"
+            ]
+
+        y_value = price_to_y(entry["close"])
+
+        # Vertical guide
+        pygame.draw.line(screen, (255,255,255),
+                         (mx, chart_y), (mx, chart_y + chart_height), 1)
+
+        # Highlight dot
+        pygame.draw.circle(screen, (255,255,0), (mx, int(y_value)), 6)
+
+        # Tooltip box
+        padding = 8
+        tooltip_width = max(font.render(t, True, (255,255,255)).get_width()
+                            for t in tooltip_lines) + padding * 2
+        tooltip_height = len(tooltip_lines) * font.get_height() + padding * 2
+
+        tooltip_rect = pygame.Rect(mx + 20, my + 20,
+                                   tooltip_width, tooltip_height)
+
+        pygame.draw.rect(screen, (20,20,40), tooltip_rect)
+        pygame.draw.rect(screen, (120,0,160), tooltip_rect, 2)
+
+        text_y = tooltip_rect.y + padding
+        for t in tooltip_lines:
+            screen.blit(font.render(t, True, (255,255,255)),
+                        (tooltip_rect.x + padding, text_y))
+            text_y += font.get_height()
 
 
 def render_news_ticker(screen, font, messages, speed, offset, dt):
