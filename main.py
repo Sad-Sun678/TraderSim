@@ -12,6 +12,7 @@ from stock import Stock
 from gui import apply_cached_pixelation
 from candle_manager import CandleManager
 from portfolio_manager import PortfolioManager
+from UIManager import UIManager
 
 DB_PATH = "game.db"
 
@@ -32,13 +33,25 @@ class GameState:
         }
         self.portfolio = {}
         self.recently_bought = {}
-
+        self.sounds = {
+            "chart": pygame.mixer.Sound("assets/sounds/chart_pop.mp3"),
+            "buy": pygame.mixer.Sound("assets/sounds/purchase_sound.mp3"),
+            "sell": pygame.mixer.Sound("assets/sounds/sale_sound.mp3"),
+            "tick_up": pygame.mixer.Sound("assets/sounds/tick_sound_up.wav"),
+            "tick_down": pygame.mixer.Sound("assets/sounds/tick_sound_down.wav"),
+        }
         # =====================================================
         # 2. LOAD EVERYTHING FROM SQLITE
         # =====================================================
         self.candles = CandleManager("game.db")
         self.load_from_db()
+        # ========================================
+        # INIT CLASSES
+        #========================================
         self.portfolio_mgr = PortfolioManager(self)
+        self.ui = UIManager(self)
+        self.gui = gui  # so UIManager can call gui render functions
+
 
         # Build Stock objects from loaded ticker dicts
         self.tickers_obj = {
@@ -451,6 +464,7 @@ class GameAssets:
         self.max_down = pygame.image.load("assets/buttons/max_button_pushed.png").convert_alpha()
         self.buy_button_up = pygame.image.load("assets/buttons/buy_button.png").convert_alpha()
         self.buy_button_down = pygame.image.load("assets/buttons/buy_button_pushed.png").convert_alpha()
+
 pygame.init()
 pygame.mixer.init()
 screen = pygame.display.set_mode((1920,1080), pygame.DOUBLEBUF | pygame.SCALED)
@@ -460,11 +474,12 @@ clock = pygame.time.Clock()
 # SOUNDS
 #------------------------
 fps_font = pygame.font.Font("assets/fonts/VCR_OSD_MONO_1.001.ttf", 18)
-purchase_sound = pygame.mixer.Sound("assets/sounds/purchase_sound.mp3")
-tick_sound_up = pygame.mixer.Sound("assets/sounds/tick_sound_up.wav")
-tick_sound_down = pygame.mixer.Sound("assets/sounds/tick_sound_down.wav")
-chart_sound = pygame.mixer.Sound("assets/sounds/chart_pop.mp3")
-sale_sound = pygame.mixer.Sound("assets/sounds/sale_sound.mp3")
+# purchase_sound = pygame.mixer.Sound("assets/sounds/purchase_sound.mp3")
+# tick_sound_up = pygame.mixer.Sound("assets/sounds/tick_sound_up.wav")
+# tick_sound_down = pygame.mixer.Sound("assets/sounds/tick_sound_down.wav")
+# sale_sound = pygame.mixer.Sound("assets/sounds/sale_sound.mp3")
+# chart_sound = pygame.mixer.Sound("assets/sounds/chart_pop.mp3")
+
 #------------------------
 #FONTS
 #------------------------
@@ -510,12 +525,12 @@ for y in range(0, 1080, 3):
 # ===========================
 while running:
 
-    # -----------------------------------------------------
+    # =====================================================
     # EVENT HANDLING
-    # -----------------------------------------------------
+    # =====================================================
     for event in pygame.event.get():
 
-        # ----------------- QUIT -----------------
+        # ---------- QUIT ----------
         if event.type == pygame.QUIT:
             t0 = time.time()
             state.autosave()
@@ -523,61 +538,24 @@ while running:
             running = False
             break
 
-        # ----------------- KEYBOARD -----------------
+        # ---------- KEYBOARD ----------
         if event.type == pygame.KEYDOWN:
+            result = state.ui.handle_key(event, screen, header_font)
+            if result == "quit":
+                running = False
+                break
 
-            # --- ESC MENU ---
-            if event.key == pygame.K_ESCAPE:
-                choice = gui.render_pause_menu(screen, header_font, state)
-                if choice == "quit":
-                    state.autosave()
-                    running = False
-                elif choice == "toggle_crt":
-                    crt_enabled = not crt_enabled
-
-            # --- FORCE BREAKOUT (debug) ---
-            if event.key == pygame.K_b and state.selected_stock:
-                d = state.tickers_obj[state.selected_stock]
-                rp = d.recent_prices
-                if len(rp) < 30:
-                    d.recent_prices = [d.current_price * 0.9] * 30
-                recent_high = max(d.recent_prices[-30:])
-                d.current_price = recent_high * 1.05
-                print("=== FORCED BREAKOUT ===")
-
-            # --- FORCE BEARISH BREAKDOWN (debug) ---
-            if event.key == pygame.K_KP0 and state.selected_stock:
-                d = state.tickers_obj[state.selected_stock]
-                rp = d.recent_prices
-                if rp:
-                    low = min(rp[-30:])
-                    forced = low * 0.90
-                    d.current_price = forced
-                    d.last_price = forced
-                    d.recent_prices.append(forced)
-                    d.recent_prices = d.recent_prices[-200:]
-                    state.news_messages.append({
-                        "text": f"{state.selected_stock} breaks support!",
-                        "color": (255, 80, 80)
-                    })
-                    print("=== FORCED BEARISH BREAKDOWN ===")
-
-            # --- Chart panning ---
-            if event.key == pygame.K_LEFT:
-                state.chart_offset -= 5
-            if event.key == pygame.K_RIGHT:
-                state.chart_offset += 5
-
-        # ----------------- MOUSE WHEEL (zoom) -----------------
+        # ---------- ZOOM ----------
         if event.type == pygame.MOUSEWHEEL:
             state.prev_chart_zoom = state.chart_zoom
             state.chart_zoom *= 1.15 if event.y > 0 else 1 / 1.15
             state.chart_zoom = max(0.1, min(200.0, state.chart_zoom))
 
-        # ----------------- MOUSE DOWN -----------------
+        # ---------- MOUSE DOWN ----------
         if event.type == pygame.MOUSEBUTTONDOWN:
-            # Unwarp if CRT enabled
-            if crt_enabled:
+
+            # Unwarp if CRT is ON
+            if state.ui.crt_enabled:
                 unwarped = gui.crt_unwarp(*event.pos)
                 if unwarped is None:
                     continue
@@ -585,148 +563,29 @@ while running:
             else:
                 mx, my = event.pos
 
-            # ---------- TOGGLES ----------
-            if state.toggle_volume_rect and state.toggle_volume_rect.collidepoint(mx, my):
-                state.show_volume = not state.show_volume
+            # Delegate everything to UIManager
+            state.ui.handle_mouse(mx, my, sidebar_data, click_zones)
 
-            if state.toggle_candles_rect and state.toggle_candles_rect.collidepoint(mx, my):
-                state.show_candles = not state.show_candles
-
-            # ---------- PORTFOLIO SCREEN ----------
-            if state.show_portfolio_screen:
-
-                if state.portfolio_ui.get("back") and state.portfolio_ui["back"].collidepoint(mx, my):
-                    state.show_portfolio_screen = False
-                    continue
-
-                if state.portfolio_ui.get("visualize") and state.portfolio_ui["visualize"].collidepoint(mx, my):
-                    state.show_portfolio_screen = False
-                    state.show_visualize_screen = True
-                    continue
-
-                for stk, rect in state.portfolio_click_zones.items():
-                    if rect.collidepoint(mx, my):
-                        state.selected_stock = stk
-                        state.show_portfolio_screen = False
-                        continue
-
-                continue  # block others
-
-            # ---------- VISUALIZE ----------
-            if state.show_visualize_screen:
-                if state.visualize_ui.get("back") and state.visualize_ui["back"].collidepoint(mx, my):
-                    state.show_visualize_screen = False
-                    state.show_portfolio_screen = True
-                continue
-
-            # ---------- SIDEBAR ----------
-            if sidebar_data:
-                for b in sidebar_data:
-                    if b["rect"].collidepoint(mx, my):
-                        if b["action"] == "view_portfolio":
-                            state.show_portfolio_screen = True
-                        elif b["action"] == "open_shop":
-                            print("Shop")
-                        elif b["action"] == "view_analysis":
-                            print("Analysis")
-                        continue
-
-            # ---------- TICKER LIST ----------
-            for stk, rect in click_zones.items():
-                if rect.collidepoint(mx, my):
-                    state.selected_stock = stk
-                    chart_sound.play()
-
-                    if stk not in state.portfolio:
-                        state.portfolio[stk] = {"shares": 0, "bought_at": [], "sell_qty": 0}
-                    else:
-                        state.portfolio[stk]["sell_qty"] = 0
-                    continue
-
-            # ---------- BUY / SELL BUTTONS ----------
-            s = state.selected_stock
-
-            # +BUY
-            if state.add_button_buy_rect and state.add_button_buy_rect.collidepoint(mx, my):
-                state.button_cooldowns["plus_buy"] = 0.08
-                state.tickers_obj[s].buy_qty += 1
-                tick_sound_up.play()
-
-            # -BUY
-            if state.minus_button_buy_rect and state.minus_button_buy_rect.collidepoint(mx, my):
-                state.button_cooldowns["minus_buy"] = 0.08
-                if state.tickers_obj[s].buy_qty > 0:
-                    state.tickers_obj[s].buy_qty -= 1
-                    tick_sound_down.play()
-
-            # MAX BUY
-            if state.max_button_buy_rect and state.max_button_buy_rect.collidepoint(mx, my):
-                state.button_cooldowns["max_buy"] = 0.08
-                cash = state.account["money"]
-                price = state.tickers_obj[s].current_price
-                state.tickers_obj[s].buy_qty = math.floor(cash / price)
-
-            # BUY
-            if state.buy_button_rect and state.buy_button_rect.collidepoint(mx, my):
-                state.button_cooldowns["buy"] = 0.08
-                s = state.selected_stock
-                before = state.portfolio[s]["shares"]
-                qty = state.tickers_obj[s].buy_qty
-
-                if state.is_market_open and qty > 0:
-                    state.portfolio_mgr.buy_stock(s, qty)
-
-                if state.portfolio[s]["shares"] > before:
-                    purchase_sound.play()
-
-            # SELL
-            if state.sell_button_rect and state.sell_button_rect.collidepoint(mx, my):
-                state.button_cooldowns["sell"] = 0.10
-                s = state.selected_stock
-                qty = state.portfolio[s]["sell_qty"]
-
-                if state.is_market_open and qty > 0:
-                    try:
-                        state.portfolio_mgr.sell_stock(s, qty)
-                        sale_sound.play()
-                    except IndexError:
-                        pass
-
-            # -SELL
-            if state.minus_button_sell_rect and state.minus_button_sell_rect.collidepoint(mx, my):
-                state.button_cooldowns["minus_sell"] = 0.10
-                if state.portfolio[s]["sell_qty"] > 0:
-                    state.portfolio[s]["sell_qty"] -= 1
-                    tick_sound_down.play()
-
-            # +SELL
-            if state.add_button_sell_rect and state.add_button_sell_rect.collidepoint(mx, my):
-                state.button_cooldowns["plus_sell"] = 0.10
-                if state.portfolio[s]["sell_qty"] < state.portfolio[s]["shares"]:
-                    state.portfolio[s]["sell_qty"] += 1
-                    tick_sound_up.play()
-
-            # MAX SELL
-            if state.max_button_sell_rect and state.max_button_sell_rect.collidepoint(mx, my):
-                state.button_cooldowns["max_sell"] = 0.10
-                state.portfolio[s]["sell_qty"] = state.portfolio[s]["shares"]
-
-    # -----------------------------------------------------
+    # =====================================================
     # TICK UPDATE
-    # -----------------------------------------------------
+    # =====================================================
     dt = clock.tick(120) / 1000
 
+    # button cooldown timers
     for k in state.button_cooldowns:
         if state.button_cooldowns[k] > 0:
             state.button_cooldowns[k] -= dt
 
+    # tick timer
     state.tick_timer += dt
     save_timer += dt
 
+    # autosave
     if save_timer >= save_interval:
         state.autosave()
         save_timer = 0
 
+    # apply tick
     while state.tick_timer >= state.tick_interval:
         state.apply_tick_price()
         state.tick_timer -= state.tick_interval
@@ -734,36 +593,40 @@ while running:
     state.portfolio_value = state.portfolio_mgr.get_portfolio_value()
     time_left = max(0, state.tick_interval - state.tick_timer)
 
-    # -----------------------------------------------------
+    # =====================================================
     # RENDERING
-    # -----------------------------------------------------
+    # =====================================================
 
     # ---------- PORTFOLIO ----------
-    if state.show_portfolio_screen:
+    if state.ui.is_screen("portfolio"):
         game_surface = pygame.Surface((1920,1080))
         gui.render_portfolio_screen(game_surface, header_font, state)
-        if crt_enabled:
+
+        if state.ui.crt_enabled:
             warped = gui.apply_crt_warp(game_surface, 0.05)
             screen.blit(warped, (0,0))
             screen.blit(scanlines, (0,0))
             gui._apply_flicker(screen)
         else:
             screen.blit(game_surface, (0,0))
+
         screen.blit(fps_font.render(f"FPS: {int(clock.get_fps())}", True, (0,255,0)), (10,10))
         pygame.display.flip()
         continue
 
     # ---------- VISUALIZE ----------
-    if state.show_visualize_screen:
+    if state.ui.is_screen("visualize"):
         game_surface = pygame.Surface((1920,1080))
         gui.render_visualize_screen(game_surface, header_font, state)
-        if crt_enabled:
+
+        if state.ui.crt_enabled:
             warped = gui.apply_crt_warp(game_surface, 0.05)
             screen.blit(warped, (0,0))
             screen.blit(scanlines, (0,0))
             gui._apply_flicker(screen)
         else:
             screen.blit(game_surface, (0,0))
+
         screen.blit(fps_font.render(f"FPS: {int(clock.get_fps())}", True, (0,255,0)), (10,10))
         pygame.display.flip()
         continue
@@ -787,7 +650,7 @@ while running:
         dt
     )
 
-    # News ticker click detection
+    # ---------- NEWS TICKER CLICK ----------
     mx, my = pygame.mouse.get_pos()
     if pygame.mouse.get_pressed()[0] and ticker_bar.collidepoint(mx, my):
         for text, rect in ticker_zones.items():
@@ -795,19 +658,21 @@ while running:
                 state.selected_stock = text.split()[0]
                 print("OPENED CHART FROM NEWS:", state.selected_stock)
 
-    # CRT effect
-    if crt_enabled:
+    # ---------- CRT WRAP ----------
+    if state.ui.crt_enabled:
         warped = gui.apply_crt_warp(game_surface, 0.03)
         apply_cached_pixelation(warped, pixel_surface, PIXEL_SIZE)
-        screen.blit(pixel_surface, (0, 0))
-        screen.blit(scanlines, (0, 0))
+        screen.blit(pixel_surface, (0,0))
+        screen.blit(scanlines, (0,0))
     else:
-        screen.blit(game_surface, (0, 0))
+        screen.blit(game_surface, (0,0))
 
     # FPS
     screen.blit(fps_font.render(f"FPS: {int(clock.get_fps())}", True, (0,255,0)), (10,10))
 
     pygame.display.flip()
+
+
 
 pygame.mixer.quit()
 pygame.quit()
