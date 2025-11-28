@@ -95,7 +95,7 @@ def render_info_panel(font, asset, screen, state):
 
     stock_name = state.selected_stock
     stock = state.tickers_obj[stock_name]
-    portfolio = state.portfolio
+    portfolio = state.portfolio_mgr.portfolio
 
     # -------------------------
     # Position constants
@@ -1134,7 +1134,7 @@ def render_portfolio_screen(screen, font, state):
     row_h = 50
     pad = 10
 
-    for stock, data in state.portfolio.items():
+    for stock, data in state.portfolio_mgr.portfolio.items():
         shares = data["shares"]
 
         if shares <= 0:
@@ -1208,7 +1208,7 @@ def render_visualize_screen(screen, font, state):
     labels = []
     total_value = 0
 
-    for stock, info in state.portfolio.items():
+    for stock, info in state.portfolio_mgr.portfolio.items():
         shares = info["shares"]
         if shares <= 0:
             continue
@@ -1252,7 +1252,7 @@ def render_visualize_screen(screen, font, state):
             "end": angle_end,
             "label": labels[i],
             "value": val,
-            "shares": state.portfolio[labels[i]]["shares"],
+            "shares": state.portfolio_mgr.portfolio[labels[i]]["shares"],
             "percent": portion * 100
         })
 
