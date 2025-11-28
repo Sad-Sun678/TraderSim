@@ -159,19 +159,21 @@ class Stock:
                 self.last_breakout_time = gs.market_time
                 self.trend += last_close * 0.002
                 sigma *= 1.5
-                gs.news_messages.append({
-                    "text": f"{self.ticker} breaks resistance! Bullish breakout!",
-                    "color": (0, 255, 0)
-                })
+
+                gs.news.add_message(
+                    f"{self.ticker} breaks resistance! Bullish breakout!",
+                    (0, 255, 0)
+                )
 
             elif breakout_down:
                 self.last_breakout_time = gs.market_time
                 self.trend -= last_close * 0.002
                 sigma *= 1.6
-                gs.news_messages.append({
-                    "text": f"{self.ticker} breaks support! Bearish breakdown!",
-                    "color": (255, 80, 80)
-                })
+
+                gs.news.add_message(
+                    f"{self.ticker} breaks support! Bearish breakdown!",
+                    (255, 80, 80)
+                )
 
         # store last_close into recent history
         self.recent_prices.append(last_close)

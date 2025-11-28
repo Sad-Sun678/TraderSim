@@ -1,11 +1,8 @@
 import sys
 import file_functions as ff
-import random
 import pygame
 import time
 import gui
-import math
-import numpy
 import sqlite3
 import json
 from stock import Stock
@@ -13,6 +10,7 @@ from gui import apply_cached_pixelation
 from candle_manager import CandleManager
 from portfolio_manager import PortfolioManager
 from UIManager import UIManager
+from news_manager import NewsManager
 
 DB_PATH = "game.db"
 
@@ -40,6 +38,15 @@ class GameState:
             "tick_up": pygame.mixer.Sound("assets/sounds/tick_sound_up.wav"),
             "tick_down": pygame.mixer.Sound("assets/sounds/tick_sound_down.wav"),
         }
+        self.fonts = {
+        "ticker_font": pygame.font.Font("assets/fonts/VCR_OSD_MONO_1.001.ttf", 16),
+        "header_font": pygame.font.Font("assets/fonts/VCR_OSD_MONO_1.001.ttf", 20),
+        "info_font": pygame.font.Font("assets/fonts/VCR_OSD_MONO_1.001.ttf", 20),
+        "menu_font": pygame.font.Font("assets/fonts/VCR_OSD_MONO_1.001.ttf", 50),
+        "sidebar_font": pygame.font.Font("assets/fonts/VCR_OSD_MONO_1.001.ttf", 50),
+        "info_bar_font": pygame.font.Font("assets/fonts/VCR_OSD_MONO_1.001.ttf", 16)
+        }
+
         # =====================================================
         # 2. LOAD EVERYTHING FROM SQLITE
         # =====================================================
@@ -51,6 +58,7 @@ class GameState:
         self.portfolio_mgr = PortfolioManager(self)
         self.ui = UIManager(self)
         self.gui = gui  # so UIManager can call gui render functions
+        self.game_assets = GameAssets()
 
 
         # Build Stock objects from loaded ticker dicts
@@ -79,8 +87,8 @@ class GameState:
         # =====================================================
         self.global_events = ff.get_json("game", "global_events")
         self.company_events = ff.get_json("game", "company_events")
-        self.news_messages = []
         self.selected_stock = None
+        self.news = NewsManager(font=self.fonts["ticker_font"])
 
         # UI button states
         self.buy_button_rect = None
@@ -120,6 +128,7 @@ class GameState:
 
         # UI draw caches
         self.portfolio_click_zones = {}
+
         self.portfolio_ui = {}
         self.visualize_ui = {}
 
@@ -464,6 +473,15 @@ class GameAssets:
         self.max_down = pygame.image.load("assets/buttons/max_button_pushed.png").convert_alpha()
         self.buy_button_up = pygame.image.load("assets/buttons/buy_button.png").convert_alpha()
         self.buy_button_down = pygame.image.load("assets/buttons/buy_button_pushed.png").convert_alpha()
+        self.fonts = {
+        "ticker_font": pygame.font.Font("assets/fonts/VCR_OSD_MONO_1.001.ttf", 16),
+        "header_font": pygame.font.Font("assets/fonts/VCR_OSD_MONO_1.001.ttf", 20),
+        "info_font": pygame.font.Font("assets/fonts/VCR_OSD_MONO_1.001.ttf", 20),
+        "menu_font": pygame.font.Font("assets/fonts/VCR_OSD_MONO_1.001.ttf", 50),
+        "sidebar_font": pygame.font.Font("assets/fonts/VCR_OSD_MONO_1.001.ttf", 50),
+        "info_bar_font": pygame.font.Font("assets/fonts/VCR_OSD_MONO_1.001.ttf", 16)
+        }
+
 
 pygame.init()
 pygame.mixer.init()
@@ -483,14 +501,7 @@ fps_font = pygame.font.Font("assets/fonts/VCR_OSD_MONO_1.001.ttf", 18)
 #------------------------
 #FONTS
 #------------------------
-ticker_font = pygame.font.Font("assets/fonts/VCR_OSD_MONO_1.001.ttf", 16)
-header_font = pygame.font.Font("assets/fonts/VCR_OSD_MONO_1.001.ttf", 20)
-info_font = pygame.font.Font("assets/fonts/VCR_OSD_MONO_1.001.ttf", 20)
-menu_font = pygame.font.Font("assets/fonts/VCR_OSD_MONO_1.001.ttf", 50)
-sidebar_font = pygame.font.Font("assets/fonts/VCR_OSD_MONO_1.001.ttf", 50)
-info_bar_font = pygame.font.Font("assets/fonts/VCR_OSD_MONO_1.001.ttf", 16)
 
-choice = gui.render_main_menu(screen, menu_font)
 #------------------------
 # ART
 #------------------------
@@ -499,14 +510,16 @@ choice = gui.render_main_menu(screen, menu_font)
 pixel_cache = None
 pixel_cache_timer = 0
 pixel_update_rate = 4   # update every 4 frames
+
+running = True
+state = GameState()
+assets = GameAssets()
+
+choice = gui.render_main_menu(screen, assets.fonts["menu_font"])
 if choice == "quit":
     pygame.quit()
     quit()
-running = True
-state = GameState()
-# SIMULATION FUNCTION
-# state.simulate_days(365)
-assets = GameAssets()
+
 ticker_x = 1920  # start fully off-screen to the right
 save_timer = 0
 save_interval = 10  # seconds
@@ -520,10 +533,13 @@ pixel_surface = pygame.Surface((1920, 1080))
 PIXEL_SIZE = 1.2
 for y in range(0, 1080, 3):
     pygame.draw.line(scanlines, (0, 0, 0, 45), (0, y), (1920, y))
+pending_click = None
+
 # ===========================
 # MAIN LOOP
 # ===========================
 while running:
+
 
     # =====================================================
     # EVENT HANDLING
@@ -540,7 +556,7 @@ while running:
 
         # ---------- KEYBOARD ----------
         if event.type == pygame.KEYDOWN:
-            result = state.ui.handle_key(event, screen, header_font)
+            result = state.ui.handle_key(event, screen, assets.fonts['header_font'])
             if result == "quit":
                 running = False
                 break
@@ -548,13 +564,13 @@ while running:
         # ---------- ZOOM ----------
         if event.type == pygame.MOUSEWHEEL:
             state.prev_chart_zoom = state.chart_zoom
-            state.chart_zoom *= 1.15 if event.y > 0 else 1 / 1.15
+            state.chart_zoom *= (1.15 if event.y > 0 else 1 / 1.15)
             state.chart_zoom = max(0.1, min(200.0, state.chart_zoom))
 
         # ---------- MOUSE DOWN ----------
         if event.type == pygame.MOUSEBUTTONDOWN:
 
-            # Unwarp if CRT is ON
+            # Get mouse (with CRT unwarp)
             if state.ui.crt_enabled:
                 unwarped = gui.crt_unwarp(*event.pos)
                 if unwarped is None:
@@ -563,33 +579,34 @@ while running:
             else:
                 mx, my = event.pos
 
-            # Delegate everything to UIManager
-            state.ui.handle_mouse(mx, my, sidebar_data, click_zones)
+            # queue mouse click until AFTER UI rects are created
+            pending_click = (mx, my)
 
     # =====================================================
     # TICK UPDATE
     # =====================================================
     dt = clock.tick(120) / 1000
 
-    # button cooldown timers
+    # Cooldowns
     for k in state.button_cooldowns:
         if state.button_cooldowns[k] > 0:
             state.button_cooldowns[k] -= dt
 
-    # tick timer
+    # Tick timer
     state.tick_timer += dt
     save_timer += dt
 
-    # autosave
+    # Autosave
     if save_timer >= save_interval:
         state.autosave()
         save_timer = 0
 
-    # apply tick
+    # Apply stock ticks
     while state.tick_timer >= state.tick_interval:
         state.apply_tick_price()
         state.tick_timer -= state.tick_interval
 
+    # Update portfolio value
     state.portfolio_value = state.portfolio_mgr.get_portfolio_value()
     time_left = max(0, state.tick_interval - state.tick_timer)
 
@@ -597,10 +614,10 @@ while running:
     # RENDERING
     # =====================================================
 
-    # ---------- PORTFOLIO ----------
+    # ---------- PORTFOLIO SCREEN ----------
     if state.ui.is_screen("portfolio"):
         game_surface = pygame.Surface((1920,1080))
-        gui.render_portfolio_screen(game_surface, header_font, state)
+        gui.render_portfolio_screen(game_surface, assets.fonts['header_font'], state)
 
         if state.ui.crt_enabled:
             warped = gui.apply_crt_warp(game_surface, 0.05)
@@ -614,10 +631,10 @@ while running:
         pygame.display.flip()
         continue
 
-    # ---------- VISUALIZE ----------
+    # ---------- VISUALIZE SCREEN ----------
     if state.ui.is_screen("visualize"):
         game_surface = pygame.Surface((1920,1080))
-        gui.render_visualize_screen(game_surface, header_font, state)
+        gui.render_visualize_screen(game_surface, assets.fonts['header_font'], state)
 
         if state.ui.crt_enabled:
             warped = gui.apply_crt_warp(game_surface, 0.05)
@@ -635,30 +652,42 @@ while running:
     game_surface = pygame.Surface((1920,1080))
     game_surface.fill((0,0,0))
 
-    gui.render_header(header_font, state.account, game_surface, time_left, state.portfolio_value, state)
-    click_zones = gui.render_tickers(ticker_font, state.tickers_obj, game_surface)
-    sidebar_data = gui.render_side_bar(game_surface, info_bar_font, state)
-    gui.render_chart(info_font, state, game_surface)
-    gui.render_info_panel(info_font, assets, game_surface, state)
+    gui.render_header(assets.fonts["header_font"], state.account, game_surface, time_left, state.portfolio_value, state)
+    click_zones = gui.render_tickers(assets.fonts['ticker_font'], state.tickers_obj, game_surface)
+    state.ui.register_tickers(click_zones)
+    sidebar_data = gui.render_side_bar(game_surface, assets.fonts['info_bar_font'], state)
+    state.ui.register_sidebar(sidebar_data)
+    chart_buttons = gui.render_chart(assets.fonts['info_font'], state, game_surface)
 
-    ticker_speed = 160
-    ticker_x, ticker_zones, ticker_bar = gui.render_news_ticker(
-        game_surface, ticker_font,
-        state.news_messages,
-        ticker_speed,
-        ticker_x,
+    if chart_buttons:
+        state.toggle_volume_rect = chart_buttons["toggle_volume"]
+        state.toggle_candles_rect = chart_buttons["toggle_candles"]
+
+
+    gui.render_info_panel(assets.fonts['info_font'], assets, game_surface, state)
+
+    # ---------- NEWS TICKER ----------
+    ticker_x, ticker_zones, ticker_bar = state.news.update_and_draw(
+        game_surface,
         dt
     )
 
-    # ---------- NEWS TICKER CLICK ----------
+    # News ticker click
     mx, my = pygame.mouse.get_pos()
     if pygame.mouse.get_pressed()[0] and ticker_bar.collidepoint(mx, my):
-        for text, rect in ticker_zones.items():
-            if rect.collidepoint(mx, my):
-                state.selected_stock = text.split()[0]
-                print("OPENED CHART FROM NEWS:", state.selected_stock)
+        selected = state.news.handle_click(mx, my)
+        if selected:
+            state.selected_stock = selected
+            print("OPENED CHART FROM NEWS:", selected)
 
-    # ---------- CRT WRAP ----------
+
+    # ---------- PROCESS CLICK AFTER RENDERING ----------
+    if pending_click:
+        mx, my = pending_click
+        state.ui.handle_mouse(mx, my, sidebar_data, click_zones)
+        pending_click = None
+
+    # ---------- CRT ----------
     if state.ui.crt_enabled:
         warped = gui.apply_crt_warp(game_surface, 0.03)
         apply_cached_pixelation(warped, pixel_surface, PIXEL_SIZE)
@@ -672,8 +701,7 @@ while running:
 
     pygame.display.flip()
 
-
-
+# Shutdown
 pygame.mixer.quit()
 pygame.quit()
 sys.exit()

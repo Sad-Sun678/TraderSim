@@ -90,10 +90,10 @@ def render_header(font, account, screen, time_left, portfolio_value,state):
 
 def render_info_panel(font, asset, screen, state):
 
-    if state.selected_stock is None:
+    if state.ui.selected_stock is None:
         return
 
-    stock_name = state.selected_stock
+    stock_name = state.ui.selected_stock
     stock = state.tickers_obj[stock_name]
     portfolio = state.portfolio_mgr.portfolio
 
@@ -141,12 +141,9 @@ def render_info_panel(font, asset, screen, state):
     ticker_text = stock.ticker
     sector_text = stock.sector
     price_text = stock.current_price
-    high_text = stock.ath
-    low_text = stock.atl
-    trend_text = stock.trend
-    qty_text = stock.buy_qty
     volume_text = stock.volume
 
+    qty_text = stock.buy_qty
     qty_sell_text = portfolio[stock_name]["sell_qty"]
 
     # Update ATH/ATL based on candle data
@@ -155,44 +152,41 @@ def render_info_panel(font, asset, screen, state):
         stock.atl = min(c["low"] for c in stock.day_history)
 
     # -------------------------
-    # Right Side (Portfolio Info)
+    # Right Column
     # -------------------------
     if stock_name in portfolio and portfolio[stock_name]["shares"] > 0:
         lst = portfolio[stock_name]["bought_at"]
         avg_price = sum(lst) / len(lst)
-
         right_lines = [
             f"Shares Owned : {portfolio[stock_name]['shares']}",
             f"Avg Purchase Price: ${avg_price:.2f}",
-            f"Volume: {volume_text}"
+            f"Volume: {volume_text}",
         ]
     else:
         right_lines = [
             "Shares Owned: 0",
             "Avg Purchase Price: N/A",
-            f"Volume: {volume_text}"
+            f"Volume: {volume_text}",
         ]
 
-    # -------------------------
-    # Left Column Info
-    # -------------------------
-    lines = [
-        f"{name_text} ({ticker_text})",
-        f"Sector: {sector_text}",
-        f"Price Per Share: ${price_text:.2f}",
-        f"All Time High: ${stock.ath:.2f}",
-        f"All Time Low: ${stock.atl:.2f}",
-        f"Trend: {trend_text:.2f}"
-    ]
-
-    # Draw right column
     for line in right_lines:
         surf = font.render(line, True, (255,255,255))
         screen.blit(surf, (right_text_x, right_text_y))
         right_text_y += 40
 
-    # Draw left column
-    for line in lines:
+    # -------------------------
+    # Left Column
+    # -------------------------
+    left_lines = [
+        f"{name_text} ({ticker_text})",
+        f"Sector: {sector_text}",
+        f"Price Per Share: ${price_text:.2f}",
+        f"All Time High: ${stock.ath:.2f}",
+        f"All Time Low: ${stock.atl:.2f}",
+        f"Trend: {stock.trend:.2f}",
+    ]
+
+    for line in left_lines:
         surf = font.render(line, True, (255,255,255))
         screen.blit(surf, (text_x, text_y))
         text_y += line_spacing
@@ -201,7 +195,7 @@ def render_info_panel(font, asset, screen, state):
     # BUY CLUSTER
     # =========================================================================
     buy_rect = pygame.Rect(buy_x, cluster_y, buy_w, cluster_h)
-    if state.button_cooldowns["buy"] > 0:
+    if state.ui.button_cooldowns["buy"] > 0:
         screen.blit(asset.buy_button_down, (buy_x, cluster_y))
     else:
         screen.blit(asset.buy_button_up, (buy_x, cluster_y))
@@ -209,21 +203,18 @@ def render_info_panel(font, asset, screen, state):
     minus_buy_rect = pygame.Rect(minus_buy_x, cluster_y, minus_w, cluster_h)
     plus_buy_rect  = pygame.Rect(plus_buy_x,  cluster_y, plus_w,  cluster_h)
 
-    # minus buy button
-    if state.button_cooldowns["minus_buy"] > 0:
+    if state.ui.button_cooldowns["minus_buy"] > 0:
         screen.blit(asset.minus_down, (minus_buy_x, cluster_y))
     else:
         screen.blit(asset.minus_up, (minus_buy_x, cluster_y))
 
-    # plus buy button
-    if state.button_cooldowns["plus_buy"] > 0:
+    if state.ui.button_cooldowns["plus_buy"] > 0:
         screen.blit(asset.plus_down, (plus_buy_x, cluster_y))
     else:
         screen.blit(asset.plus_up, (plus_buy_x, cluster_y))
 
-    # MAX BUY
     max_buy_rect = pygame.Rect(max_buy_x, max_y, max_buy_w, cluster_h)
-    if state.button_cooldowns["max_buy"] > 0:
+    if state.ui.button_cooldowns["max_buy"] > 0:
         screen.blit(asset.max_down, (max_buy_x, max_y))
     else:
         screen.blit(asset.max_up, (max_buy_x, max_y))
@@ -233,8 +224,7 @@ def render_info_panel(font, asset, screen, state):
     # =========================================================================
     sell_rect = pygame.Rect(sell_x, cluster_y, sell_w, cluster_h)
 
-    # Selling uses the BUY button art temporarily
-    if state.button_cooldowns["sell"] > 0:
+    if state.ui.button_cooldowns["sell"] > 0:
         screen.blit(asset.buy_button_down, (sell_x, cluster_y))
     else:
         screen.blit(asset.buy_button_up, (sell_x, cluster_y))
@@ -242,40 +232,39 @@ def render_info_panel(font, asset, screen, state):
     minus_sell_rect = pygame.Rect(minus_sell_x, cluster_y, minus_w, cluster_h)
     plus_sell_rect  = pygame.Rect(plus_sell_x,  cluster_y, plus_w,  cluster_h)
 
-    # minus sell button
-    if state.button_cooldowns["minus_sell"] > 0:
+    if state.ui.button_cooldowns["minus_sell"] > 0:
         screen.blit(asset.minus_down, (minus_sell_x, cluster_y))
     else:
         screen.blit(asset.minus_up, (minus_sell_x, cluster_y))
 
-    # plus sell button
-    if state.button_cooldowns["plus_sell"] > 0:
+    if state.ui.button_cooldowns["plus_sell"] > 0:
         screen.blit(asset.plus_down, (plus_sell_x, cluster_y))
     else:
         screen.blit(asset.plus_up, (plus_sell_x, cluster_y))
 
-    # MAX SELL
     max_sell_rect = pygame.Rect(max_sell_x, max_y, max_sell_w, cluster_h)
-    if state.button_cooldowns["max_sell"] > 0:
+    if state.ui.button_cooldowns["max_sell"] > 0:
         screen.blit(asset.max_down, (max_sell_x, max_y))
     else:
         screen.blit(asset.max_up, (max_sell_x, max_y))
 
     # =========================================================================
-    # REGISTER HITBOXES
+    # SEND HITBOXES → UI MANAGER
     # =========================================================================
-    state.buy_button_rect = buy_rect
-    state.minus_button_buy_rect = minus_buy_rect
-    state.add_button_buy_rect = plus_buy_rect
-    state.max_button_buy_rect = max_buy_rect
+    state.ui.register_info_panel_rects({
+        "buy": buy_rect,
+        "plus_buy": plus_buy_rect,
+        "minus_buy": minus_buy_rect,
+        "max_buy": max_buy_rect,
 
-    state.sell_button_rect = sell_rect
-    state.minus_button_sell_rect = minus_sell_rect
-    state.add_button_sell_rect = plus_sell_rect
-    state.max_button_sell_rect = max_sell_rect
+        "sell": sell_rect,
+        "plus_sell": plus_sell_rect,
+        "minus_sell": minus_sell_rect,
+        "max_sell": max_sell_rect,
+    })
 
     # =========================================================================
-    # TEXT OVERLAYS
+    # TEXT LABELS
     # =========================================================================
     screen.blit(font.render(f"BUY:{qty_text}", True, (0,0,0)),
                 (buy_x + 80, cluster_y + 15))
@@ -288,6 +277,7 @@ def render_info_panel(font, asset, screen, state):
 
     screen.blit(font.render("MAX", True, (0,0,0)),
                 (max_sell_x + 135, max_y + 15))
+
 
 def render_main_menu(screen, font):
     menu_running = True
@@ -782,22 +772,22 @@ def render_chart(font, state, screen):
     button_y = 310
     button_x = 1040
 
-    volume_btn  = pygame.Rect(button_x, button_y, 155, 30)
-    candles_btn = pygame.Rect(button_x + 200, button_y, 155, 30)
+    volume_button_rect  = pygame.Rect(button_x, button_y, 155, 30)
+    candle_button_rect = pygame.Rect(button_x + 200, button_y, 155, 30)
 
-    state.toggle_volume_rect = volume_btn
-    state.toggle_candles_rect = candles_btn
+    state.toggle_volume_rect = volume_button_rect
+    state.toggle_candles_rect = candle_button_rect
 
-    pygame.draw.rect(screen, (80, 30, 120), volume_btn)
-    pygame.draw.rect(screen, (80, 30, 120), candles_btn)
+    pygame.draw.rect(screen, (80, 30, 120), volume_button_rect)
+    pygame.draw.rect(screen, (80, 30, 120), candle_button_rect)
 
     screen.blit(
         font.render(f"Volume: {'ON' if state.show_volume else 'OFF'}", True, (255, 255, 255)),
-        (volume_btn.x + 8, volume_btn.y + 5)
+        (volume_button_rect.x + 8, volume_button_rect.y + 5)
     )
     screen.blit(
         font.render(f"Candles: {'ON' if state.show_candles else 'OFF'}", True, (255, 255, 255)),
-        (candles_btn.x + 8, candles_btn.y + 5)
+        (candle_button_rect.x + 8, candle_button_rect.y + 5)
     )
 
     # ----------------------------------------
@@ -1013,6 +1003,10 @@ def render_chart(font, state, screen):
         for t in lines:
             screen.blit(font.render(t, True, (255,255,255)), (r.x + padding, ty))
             ty += font.get_height()
+    return {
+        "toggle_volume": volume_button_rect,
+        "toggle_candles": candle_button_rect
+    }
 
 
 def render_news_ticker(screen, font, messages, speed, offset, dt):
@@ -1075,38 +1069,53 @@ def render_news_ticker(screen, font, messages, speed, offset, dt):
 
 
 def render_side_bar(screen, font, state):
-    side_bar_rect = pygame.draw.rect(screen, (104, 104, 104), (1620, 80, 300, 940))
+    """
+    Draws the sidebar and registers sidebar buttons
+    into the UIManager for centralized click handling.
+    """
 
+    # Draw sidebar background
+    pygame.draw.rect(screen, (104, 104, 104), (1620, 80, 300, 940))
+
+    # Buttons definition
     buttons = [
         {"text": "View Portfolio", "action": "view_portfolio"},
         {"text": "Shop", "action": "open_shop"},
-        {"text": "Market Analysis", "action": "view_analysis"}
+        {"text": "Market Analysis", "action": "view_analysis"},
     ]
 
-    button_data = []
+    # Layout parameters
     bar_x = 1620
     bar_y = 80
     bar_w = 300
     bar_h = 50
     padding = 100
 
-    for line in buttons:
-        rect = pygame.Rect(bar_x, bar_y, bar_w, bar_h)
-        pygame.draw.rect(screen, (40, 0, 80), rect)
-        # pygame.draw.rect(screen, (255, 0, 0), rect, 2)  # draw hitbox outline
+    sidebar_rects = []
 
-        text_surface = font.render(line["text"], True, (255, 255, 255))
+    # Draw each button
+    for entry in buttons:
+        rect = pygame.Rect(bar_x, bar_y, bar_w, bar_h)
+
+        pygame.draw.rect(screen, (40, 0, 80), rect)
+        # pygame.draw.rect(screen, (255, 0, 0), rect, 2)  # debug outline
+
+        text_surface = font.render(entry["text"], True, (255, 255, 255))
         text_rect = text_surface.get_rect(center=rect.center)
         screen.blit(text_surface, text_rect)
 
-        button_data.append({
+        # Collect info for UIManager
+        sidebar_rects.append({
             "rect": rect,
-            "action": line["action"]
+            "action": entry["action"]
         })
 
         bar_y += padding
 
-    return button_data
+    # Send rects to UI Manager
+    state.ui.register_sidebar(sidebar_rects)
+
+    return sidebar_rects
 
 
 def render_portfolio_screen(screen, font, state):
