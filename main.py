@@ -13,6 +13,7 @@ DB_PATH = "game.db"
 
 from stock import Stock
 from gui import apply_cached_pixelation
+from candle_manager import CandleManager
 
 def db_connect():
     return sqlite3.connect(DB_PATH)
@@ -31,37 +32,32 @@ class GameState:
             "market_day": 1
         }
         self.portfolio = {}
-        self.tickers = {}
         self.recently_bought = {}
 
         # =====================================================
         # 2. LOAD EVERYTHING FROM SQLITE
         # =====================================================
+        self.candles = CandleManager("game.db")
+
         self.load_from_db()
-        new_tickers = {}
-        for t, d in self.tickers.items():
-            new_tickers[t] = Stock(t, d)
-        self.tickers_obj = new_tickers
 
+        # Build Stock objects from loaded ticker dicts
+        self.tickers_obj = {
+            name: Stock(name, attrs)
+            for name, attrs in self.tickers.items()
+        }
 
-        # sync base state
+        # Sync core time values from DB
         self.game_day = self.account["market_day"]
         self.market_time = self.account["market_time"]
         self.market_open = self.account["market_open"]
         self.market_close = self.account["market_close"]
 
         # =====================================================
-        # 3. ENSURE RUNTIME-ONLY FIELDS EXIST
+        # 3. RUNTIME FIELDS
         # =====================================================
-        for name, data in self.tickers.items():
-            data.setdefault("day_history", [])
-            data.setdefault("ohlc_buffer", [])
-            data.setdefault("recent_prices", [])
-            data.setdefault("volume_history", [])
-            data.setdefault("history", [])
-            data.setdefault("last_breakout_time", -9999)
-            data.setdefault("volume_cap", data["avg_volume"] * 12)
-        for stock_name, stock_data in self.tickers.items():
+        # order flow tracking
+        for stock_name in self.tickers.keys():
             self.recently_bought[stock_name] = {
                 "order_force_time_delta": 0
             }
@@ -75,7 +71,7 @@ class GameState:
 
         self.selected_stock = None
 
-        # ---- UI Buttons ----
+        # UI button states
         self.buy_button_rect = None
         self.sell_button_rect = None
         self.add_button_sell_rect = None
@@ -84,6 +80,7 @@ class GameState:
         self.minus_button_buy_rect = None
         self.max_button_buy_rect = None
         self.max_button_sell_rect = None
+
         self.buy_button_pressed = False
         self.minus_buy_pressed = False
         self.plus_buy_pressed = False
@@ -103,7 +100,8 @@ class GameState:
             "minus_sell": 0,
             "max_sell": 0
         }
-        # ---- Screens ----
+
+        # Screens
         self.show_portfolio_screen = False
         self.show_volume = False
         self.show_candles = False
@@ -112,15 +110,15 @@ class GameState:
         self.toggle_volume_rect = None
         self.toggle_candles_rect = None
 
-        # ---- UI Collections ----
+        # UI draw caches
         self.portfolio_click_zones = {}
         self.portfolio_ui = {}
         self.visualize_ui = {}
 
-        # ---- Portfolio Value ----
+        # Portfolio metrics
         self.portfolio_value = self.get_portfolio_value()
 
-        # ---- Pie Slice Animation ----
+        # Pie slice animation
         self.slice_animating = False
         self.slice_anim_stock = None
         self.slice_anim_timer = 0
@@ -152,17 +150,13 @@ class GameState:
 
         self.is_market_open = False
         self.market_events = []
+
+        # (Unused now, but harmless)
         self.trend_decay_rate = 0.1
 
         # =====================================================
-        # 7. VOLATILITY & SEASONAL MODELS
+        # 7. SEASONAL MODELS
         # =====================================================
-        self.volatility_ranges = {
-            "low":    (0.002, 0.012),
-            "medium": (0.01,  0.05),
-            "high":   (0.03,  0.12)
-        }
-
         self.season_profiles = {
             1: {"trend_bias":  0.001,  "volatility_mult": 1.1, "volume_mult": 1.1},
             2: {"trend_bias":  0.0,    "volatility_mult": 1.0, "volume_mult": 1.0},
@@ -174,34 +168,47 @@ class GameState:
         # 8. SECTOR SENTIMENT SYSTEM
         # =====================================================
         self.sector_sentiment = {}
-        
-        for ticker, data in self.tickers.items():
-            self.sector_sentiment[data["sector"]] = 0.0
+        for stock in self.tickers_obj.values():
+            self.sector_sentiment[stock.sector] = 0.0
 
         self.market_mood = 0.0
 
     def apply_tick_price(self):
+        # ============================
+        # 1. ADVANCE MARKET CLOCK
+        # ============================
         self.market_time += self.minutes_per_tick
+
+        # rollover into next day
         while self.market_time >= 1440:
             self.market_time -= 1440
             self._advance_game_day()
 
         self.is_market_open = self.market_open <= self.market_time <= self.market_close
 
-        for ticker, stock_obj in self.tickers_obj.items():
-            stock_obj.apply_tick(self)
+        # ============================
+        # 2. APPLY TICK TO EACH STOCK
+        # ============================
+        for ticker, stock in self.tickers_obj.items():
+            # let the Stock object simulate itself
+            stock.apply_tick(self)
 
-            # sync → dict for UI & database
+            # ============================
+            # 3. SYNC BACK TO DICT (DB/UI)
+            # ============================
             d = self.tickers[ticker]
-            d["current_price"] = stock_obj.current_price
-            d["last_price"] = stock_obj.last_price
-            d["trend"] = stock_obj.trend
-            d["ath"] = stock_obj.ath
-            d["atl"] = stock_obj.atl
-            d["volume"] = stock_obj.volume
-            d["volume_history"] = stock_obj.volume_history
-            d["recent_prices"] = stock_obj.recent_prices
-            d["day_history"] = stock_obj.day_history
+
+            d["current_price"] = stock.current_price
+            d["last_price"] = stock.last_price
+            d["trend"] = stock.trend
+            d["volume"] = stock.volume
+            d["ath"] = stock.ath
+            d["atl"] = stock.atl
+
+            # synced histories (for charts + DB save)
+            d["day_history"] = stock.day_history
+            d["volume_history"] = stock.volume_history
+            d["recent_prices"] = stock.recent_prices
 
     def _advance_game_day(self):
         # Move to next day
@@ -217,18 +224,17 @@ class GameState:
         if self.game_season > self.total_seasons:
             self.game_season = 1
             self.game_day = 1
-    def get_portfolio_value(self):
-        portfolio_value = 0
-        for stock in self.portfolio:
-            shares = self.portfolio[stock]["shares"]
-            price = self.tickers[stock]["current_price"]
-            held_total = price * shares
-            portfolio_value += held_total
-        return portfolio_value
 
+    def get_portfolio_value(self):
+        total = 0
+        for ticker, entry in self.portfolio.items():
+            shares = entry["shares"]
+            price = self.tickers_obj[ticker].current_price
+            total += price * shares
+        return total
 
     def buy_stock(self, stock_name, amount_purchased=1):
-        data = self.tickers[stock_name]
+        data = self.tickers_obj[stock_name]
         price = data["current_price"]
         if self.account["money"] >= price * amount_purchased:
             #subtract total price from players money in account
@@ -262,7 +268,7 @@ class GameState:
             print("Not enough shares to sell!")
             return
 
-        data = self.tickers[stock_name]
+        data = self.tickers_obj[stock_name]
         price = data["current_price"]
 
         self.portfolio[stock_name]["shares"] -= amount
@@ -275,7 +281,8 @@ class GameState:
         try:
             print("button clicked")
             selected_stock = self.selected_stock
-            self.buy_stock(selected_stock,data.buy_qty)
+            buy_qty = self.tickers_obj[selected_stock].buy_qty
+            self.buy_stock(selected_stock,buy_qty)
             print("handler passing to buy function")
         except NameError:
             print("Name Error")
@@ -287,50 +294,20 @@ class GameState:
     def market_is_open(self):
         return self.market_open <= self.market_time <= self.market_close
 
-    def save_candles_to_db(self):
 
-        conn = sqlite3.connect("game.db")
-        cur = conn.cursor()
-        MAX_CANDLES = 2000
-
-        for name, data in self.tickers.items():
-
-            # Trim RAM
-            data["day_history"] = data["day_history"][-MAX_CANDLES:]
-
-            # DELETE ONCE — this is the important fix
-            cur.execute("DELETE FROM candles WHERE ticker = ?", (name,))
-
-            # Insert trimmed history
-            for c in data["day_history"]:
-                cur.execute("""
-                            INSERT INTO candles (ticker, day, time, open, high, low, close, volume)
-                            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                            """, (
-                                name,
-                                c["day"],
-                                c["time"],
-                                c["open"],
-                                c["high"],
-                                c["low"],
-                                c["close"],
-                                c["volume"]
-                            ))
-
-        conn.commit()
-        conn.close()
 
     def load_from_db(self):
-        '''
-        grabs data from game.db and assigns it to self.portfolio, self.account and self.tickers
-        '''
+        """
+        Load account, portfolio, tickers, and candle history from SQLite.
+        Produces clean dicts that Stock() will wrap into objects.
+        """
 
         conn = sqlite3.connect("game.db")
         cur = conn.cursor()
 
-        # -----------------------
-        # ACCOUNT
-        # -----------------------
+        # -------------------------------------------------
+        # 1. ACCOUNT
+        # -------------------------------------------------
         row = cur.execute("""
                           SELECT money, market_time, market_open, market_close, market_day
                           FROM account
@@ -343,11 +320,10 @@ class GameState:
             self.account["market_open"] = row[2]
             self.account["market_close"] = row[3]
             self.account["market_day"] = row[4]
-            self.game_day = row[4]
 
-        # -----------------------
-        # TICKERS
-        # -----------------------
+        # -------------------------------------------------
+        # 2. TICKERS (persistent DB fields)
+        # -------------------------------------------------
         rows = cur.execute("""
                            SELECT ticker,
                                   name,
@@ -366,12 +342,14 @@ class GameState:
                            FROM tickers
                            """).fetchall()
 
-        self.tickers = {}  # overwrite JSON version
+        self.tickers = {}
 
         for row in rows:
             t = row[0]
+
+            # Build initial ticker dict
             self.tickers[t] = {
-                "ticker": row[0],
+                "ticker": t,
                 "name": row[1],
                 "sector": row[2],
                 "current_price": row[3],
@@ -386,54 +364,46 @@ class GameState:
                 "volume": row[12],
                 "avg_volume": row[13],
 
-                # RUNTIME FIELDS
-                "volume_cap": row[13] * 12,  # DEFAULT CAP
-                "history": [],
-                "volume_history": [],
+                # Runtime-only fields restored with defaults
+                "volume_cap": row[13] * 12,
                 "recent_prices": [],
+                "volume_history": [],
                 "day_history": [],
                 "ohlc_buffer": [],
                 "last_breakout_time": -9999
             }
 
-        # -----------------------
-        # PORTFOLIO
-        # -----------------------
-        rows = cur.execute("SELECT ticker, shares, bought_at, sell_qty FROM portfolio").fetchall()
+        # -------------------------------------------------
+        # 3. PORTFOLIO
+        # -------------------------------------------------
+        rows = cur.execute("""
+                           SELECT ticker, shares, bought_at, sell_qty
+                           FROM portfolio
+                           """).fetchall()
 
-        for t, shares, bought_at, sell_qty in rows:
-            self.portfolio[t] = {
+        for ticker, shares, bought_at, sell_qty in rows:
+            self.portfolio[ticker] = {
                 "shares": shares,
                 "bought_at": json.loads(bought_at),
                 "sell_qty": sell_qty
             }
 
-        # -----------------------
-        # CANDLES (OHLC) — persistent chart history
-        # -----------------------
-        rows = cur.execute("""
-                           SELECT ticker, day, time, open, high, low, close, volume
-                           FROM candles
-                           ORDER BY ticker, day, time
-                           """).fetchall()
-
-        for ticker, day, time, o, h, l, c, vol in rows:
-            if ticker in self.tickers:
-                self.tickers[ticker]["day_history"].append({
-                    "day": day,
-                    "time": time,
-                    "open": o,
-                    "high": h,
-                    "low": l,
-                    "close": c,
-                    "volume": vol
-                })
+        # -------------------------------------------------
+        # 4. CANDLES (OHLC history)
+        # -------------------------------------------------
+        self.candles.load_all(self.tickers)
 
         conn.close()
 
     def autosave(self):
-        ''' Writes back self.account, self.portfolio,self.tickers to db and calls the save candles to db function'''
-        # Sync account dict with current state
+        """
+        Save account, portfolio, and ticker fields to SQLite.
+        Candles are saved separately via save_candles_to_db().
+        """
+
+        # ---------------------------------
+        # 1. Sync account with current runtime state
+        # ---------------------------------
         self.account["market_time"] = self.market_time
         self.account["market_open"] = self.market_open
         self.account["market_close"] = self.market_close
@@ -442,9 +412,9 @@ class GameState:
         conn = sqlite3.connect("game.db")
         cur = conn.cursor()
 
-        # -------------------------
-        # 1. SAVE ACCOUNT
-        # -------------------------
+        # ---------------------------------
+        # 2. SAVE ACCOUNT
+        # ---------------------------------
         cur.execute("""
                     UPDATE account
                     SET money=?,
@@ -461,9 +431,9 @@ class GameState:
                         self.account["market_day"]
                     ))
 
-        # -------------------------
-        # 2. SAVE PORTFOLIO
-        # -------------------------
+        # ---------------------------------
+        # 3. SAVE PORTFOLIO
+        # ---------------------------------
         for ticker, info in self.portfolio.items():
             cur.execute("""
                         UPDATE portfolio
@@ -474,14 +444,14 @@ class GameState:
                         """, (
                             info["shares"],
                             json.dumps(info["bought_at"]),
-                            info["sell_qty"],
+                            info.get("sell_qty", 0),
                             ticker
                         ))
 
-        # -------------------------
-        # 3. SAVE TICKERS
-        # -------------------------
-        for name, data in self.tickers.items():
+        # ---------------------------------
+        # 4. SAVE TICKERS (from Stock objects)
+        # ---------------------------------
+        for name, stock in self.tickers_obj.items():
             cur.execute("""
                         UPDATE tickers
                         SET current_price=?,
@@ -497,35 +467,27 @@ class GameState:
                             avg_volume=?
                         WHERE ticker = ?
                         """, (
-                            data["current_price"],
-                            data["last_price"],
-                            data["base_price"],
-                            data["volatility"],
-                            data["gravity"],
-                            data["trend"],
-                            data["ath"],
-                            data["atl"],
-                            data["buy_qty"],
-                            data["volume"],
-                            data["avg_volume"],
+                            stock.current_price,
+                            stock.last_price,
+                            stock.base_price,
+                            stock.volatility,
+                            stock.gravity,
+                            stock.trend,
+                            stock.ath,
+                            stock.atl,
+                            stock.buy_qty,
+                            stock.volume,
+                            stock.avg_volume,
                             name
                         ))
 
         conn.commit()
         conn.close()
 
-        # -------------------------
-        # 4. SAVE CANDLES
-        # -------------------------
-        self.save_candles_to_db()
-
-
-        # -------------------------
-        # 6. TINY JSON BACKUP
-        # -------------------------
-        # ff.write_json("game", "tickers", self.tickers)
-        # ff.write_json("player", "account", self.account)
-        # ff.write_json("player", "portfolio", self.portfolio)
+        # ---------------------------------
+        # 5. SAVE CANDLES
+        # ---------------------------------
+        self.candles.save_all(self.tickers_obj)
 
     def simulate_days(self, days_to_simulate):
         ticks_per_day = (self.market_close - self.market_open) // self.minutes_per_tick
@@ -925,7 +887,7 @@ while running:
     game_surface = pygame.Surface((1920,1080))
     game_surface.fill((0,0,0))
     gui.render_header(header_font, state.account, game_surface, time_left, state.portfolio_value, state)
-    click_zones = gui.render_tickers(ticker_font, state.tickers, game_surface)
+    click_zones = gui.render_tickers(ticker_font, state.tickers_obj, game_surface)
     sidebar_data = gui.render_side_bar(game_surface, info_bar_font, state)
     gui.render_chart(info_font, state, game_surface)
     gui.render_info_panel(info_font, assets, game_surface,state)

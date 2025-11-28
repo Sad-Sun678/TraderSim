@@ -2,42 +2,57 @@ import random, math
 
 class Stock:
     def __init__(self, ticker, info):
+        """
+        info comes from DB and contains ONLY persistent fields.
+        All runtime-only fields get initialized here.
+        """
         self.ticker = ticker
 
-        # core
+        # -----------------------
+        # PERSISTENT DB FIELDS
+        # -----------------------
         self.name = info["name"]
+        self.sector = info["sector"]
+
         self.current_price = info["current_price"]
         self.last_price = info["last_price"]
         self.base_price = info["base_price"]
+
         self.volatility = info["volatility"]
         self.gravity = info["gravity"]
-        self.sector = info["sector"]
-
-        # dynamics
         self.trend = info["trend"]
+
         self.ath = info["ath"]
         self.atl = info["atl"]
 
-        # volume
+        self.buy_qty = info["buy_qty"]
         self.volume = info["volume"]
         self.avg_volume = info["avg_volume"]
-        self.volume_cap = info["volume_cap"]
-        self.volume_history = info["volume_history"]
 
-        # history
-        self.history = info["history"]
-        self.day_history = info["day_history"]
-        self.recent_prices = info.get("recent_prices", [])
+        # volume cap optional / safe default
+        self.volume_cap = info.get("volume_cap", self.avg_volume * 12)
 
-        # OHLC buffer
+        # -----------------------
+        # RUNTIME-ONLY FIELDS
+        # -----------------------
+        self.history = []                       # legacy (not used much)
+        self.volume_history = []                # per tick volume log
+        self.recent_prices = []                 # rolling last X prices
+
+        # OHLC candle history (7-day charts, etc.)
+        self.day_history = info.get("day_history", [])
+
+        # buffer for building each 5-minute candle
         self.ohlc_buffer = []
 
-        # misc
-        self.intraday_bias = info.get("intraday_bias", None)
-        self.daily_volume_phase = info.get("daily_volume_phase", None)
+        # breakout cooldown
         self.last_breakout_time = info.get("last_breakout_time", -9999)
-        self.buy_qty = info["buy_qty"]
 
+        # used by apply_tick
+        self._open_tmp = None
+        self.intraday_bias = None  # daily volume shaping factor
+        self.daily_volume_phase = None  # shifts sinusoidal volume curve
+        self.seasonal_bias = 0.0  # optional seasonal influence
     # =====================================================================
     # FULL TICK LOGIC REFACTORED FROM GAMESTATE TO HERE
     # =====================================================================

@@ -6,38 +6,42 @@ import time
 import numpy
 
 
-def render_tickers(font, tickers, screen):
+def render_tickers(font, tickers_obj, screen):
     mx, my = pygame.mouse.get_pos()
     y = 90
     x = 10
     click_zones = {}
 
-    for stock in tickers:
-        data = tickers[stock]
-        if "buy_qty" not in data:
-            data["buy_qty"] = 1
-        if data["current_price"] > data["last_price"]:
-            text_color = (0,255,0)
-        elif data["current_price"] < data["last_price"]:
-            text_color = (255,80,80)
+    for name, stock in tickers_obj.items():
+
+        # Determine price color
+        if stock.current_price > stock.last_price:
+            color = (0,255,0)
+        elif stock.current_price < stock.last_price:
+            color = (255,80,80)
         else:
-            text_color = (255,255,255)
+            color = (255,255,255)
 
         row_rect = pygame.Rect(x, y, 150, 40)
-        click_zones[stock] = row_rect
+        click_zones[name] = row_rect
 
+        # Hover highlight
         if row_rect.collidepoint(mx, my):
             pygame.draw.rect(screen, (104,104,104), row_rect)
 
-        text_surface = font.render(f"{data['ticker']}: ${data['current_price']:.2f}", True, text_color)
+        text_surface = font.render(
+            f"{stock.ticker}: ${stock.current_price:.2f}", True, color
+        )
         text_rect = text_surface.get_rect()
-
         text_rect.centery = row_rect.centery
         text_rect.x = row_rect.x + 10
+
         screen.blit(text_surface, text_rect)
 
         y += 40
+
     return click_zones
+
 
 
 def render_header(font, account, screen, time_left, portfolio_value,state):
@@ -88,186 +92,203 @@ def render_info_panel(font, asset, screen, state):
 
     if state.selected_stock is None:
         return
+
+    stock_name = state.selected_stock
+    stock = state.tickers_obj[stock_name]
+    portfolio = state.portfolio
+
+    # -------------------------
+    # Position constants
+    # -------------------------
+    text_x = 380
+    text_y = 120
+    right_text_x = 760
+    right_text_y = 200
+    line_spacing = 40
+
+    cluster_y = 890
+    cluster_h = 50
+
+    buy_w = 200
+    sell_w = 200
+
+    chart_x = 250
+    chart_w = 1230
+    chart_right = chart_x + chart_w
+
+    buy_x = chart_x
+    sell_x = chart_right - (sell_w + 120)
+
+    minus_w = 50
+    plus_w = 50
+
+    minus_buy_x = buy_x - (minus_w + 10)
+    plus_buy_x = buy_x + buy_w + 10
+
+    minus_sell_x = sell_x - (minus_w + 10)
+    plus_sell_x = sell_x + sell_w + 10
+
+    max_buy_w = 320
+    max_sell_w = 320
+    max_buy_x = minus_buy_x
+    max_sell_x = minus_sell_x
+    max_y = cluster_y + cluster_h + 10
+
+    # -------------------------
+    # Stock Data
+    # -------------------------
+    name_text = stock.name
+    ticker_text = stock.ticker
+    sector_text = stock.sector
+    price_text = stock.current_price
+    high_text = stock.ath
+    low_text = stock.atl
+    trend_text = stock.trend
+    qty_text = stock.buy_qty
+    volume_text = stock.volume
+
+    qty_sell_text = portfolio[stock_name]["sell_qty"]
+
+    # Update ATH/ATL based on candle data
+    if stock.day_history:
+        stock.ath = max(c["high"] for c in stock.day_history)
+        stock.atl = min(c["low"] for c in stock.day_history)
+
+    # -------------------------
+    # Right Side (Portfolio Info)
+    # -------------------------
+    if stock_name in portfolio and portfolio[stock_name]["shares"] > 0:
+        lst = portfolio[stock_name]["bought_at"]
+        avg_price = sum(lst) / len(lst)
+
+        right_lines = [
+            f"Shares Owned : {portfolio[stock_name]['shares']}",
+            f"Avg Purchase Price: ${avg_price:.2f}",
+            f"Volume: {volume_text}"
+        ]
     else:
-        # chart constants used for alignment
-
-        stock_name = state.selected_stock
-        data = state.tickers_obj[stock_name]
-        portfolio = state.portfolio
-
-        text_x = 380
-        text_y = 120
-        right_text_x = 760
-        right_text_y = 200
-        line_spacing = 40
-
-        # NEW POSITIONS
-        cluster_y = 890
-        cluster_h = 50
-
-        buy_w = 200
-        sell_w = 200
-
-        chart_x = 250
-        chart_w = 1230
-        chart_right = chart_x + chart_w
-
-        buy_x = chart_x
-        sell_x = chart_right - (sell_w + 120)
-
-        minus_w = 50
-        plus_w = 50
-
-        minus_buy_x = buy_x - (minus_w + 10)
-        plus_buy_x = buy_x + buy_w + 10
-
-        minus_sell_x = sell_x - (minus_w + 10)
-        plus_sell_x = sell_x + sell_w + 10
-
-        max_buy_w = 320
-        max_sell_w = 320
-        max_buy_x = minus_buy_x
-        max_sell_x = minus_sell_x
-        max_y = cluster_y + cluster_h + 10
-
-        # TEXT DATA
-        name_text = data.name
-        ticker_text = data.ticker
-        sector_text = data.sector
-        price_text = data.current_price
-        high_text = data.ath
-        low_text = data.atl
-        trend_text = data.trend
-        qty_text = data.buy_qty
-        volume_text = data.volume
-        qty_sell_text = state.portfolio[stock_name]["sell_qty"]
-        # Update ATH / ATL from candle data
-        if data.day_history:
-            hist_high = max(candle["high"] for candle in data.day_history)
-            hist_low = min(candle["low"] for candle in data.day_history)
-            data.ath = hist_high
-            data.atl = hist_low
-
-        if stock_name in portfolio and portfolio[stock_name]["shares"] > 0:
-            lst = portfolio[stock_name]["bought_at"]
-            avg_price = sum(lst) / len(lst)
-            right_lines = [
-                f"Shares Owned : {portfolio[stock_name]['shares']}",
-                f"Avg Purchase Price: ${avg_price:.2f}",
-                f"Volume: {volume_text}"
-            ]
-        else:
-            right_lines = [
-                "Shares Owned: 0",
-                "Avg Purchase Price: N/A",
-                f"Volume: {volume_text}"
-            ]
-
-        lines = [
-            f"{name_text} ({ticker_text})",
-            f"Sector: {sector_text}",
-            f"Price Per Share: ${price_text:.2f}",
-            f"All Time High: ${high_text:.2f}",
-            f"All Time Low: ${low_text:.2f}",
-            f"Trend: {trend_text:.2f}"
+        right_lines = [
+            "Shares Owned: 0",
+            "Avg Purchase Price: N/A",
+            f"Volume: {volume_text}"
         ]
 
-        # Right column text
-        for line in right_lines:
-            surf = font.render(line, True, (255,255,255))
-            screen.blit(surf, (right_text_x, right_text_y))
-            right_text_y += 40
+    # -------------------------
+    # Left Column Info
+    # -------------------------
+    lines = [
+        f"{name_text} ({ticker_text})",
+        f"Sector: {sector_text}",
+        f"Price Per Share: ${price_text:.2f}",
+        f"All Time High: ${stock.ath:.2f}",
+        f"All Time Low: ${stock.atl:.2f}",
+        f"Trend: {trend_text:.2f}"
+    ]
 
-        # Left column text
-        for line in lines:
-            surf = font.render(line, True, (255,255,255))
-            screen.blit(surf, (text_x, text_y))
-            text_y += line_spacing
+    # Draw right column
+    for line in right_lines:
+        surf = font.render(line, True, (255,255,255))
+        screen.blit(surf, (right_text_x, right_text_y))
+        right_text_y += 40
 
-        # ==================== BUY CLUSTER ====================
-        buy_rect = pygame.Rect(buy_x, cluster_y, buy_w, cluster_h)
-        if state.button_cooldowns["buy"] > 0:
-            screen.blit(asset.buy_button_down, (buy_x, cluster_y))
-        else:
-            screen.blit(asset.buy_button_up, (buy_x, cluster_y))
+    # Draw left column
+    for line in lines:
+        surf = font.render(line, True, (255,255,255))
+        screen.blit(surf, (text_x, text_y))
+        text_y += line_spacing
 
-        minus_buy_rect = pygame.Rect(minus_buy_x, cluster_y, minus_w, cluster_h)
-        plus_buy_rect = pygame.Rect(plus_buy_x, cluster_y, plus_w, cluster_h)
+    # =========================================================================
+    # BUY CLUSTER
+    # =========================================================================
+    buy_rect = pygame.Rect(buy_x, cluster_y, buy_w, cluster_h)
+    if state.button_cooldowns["buy"] > 0:
+        screen.blit(asset.buy_button_down, (buy_x, cluster_y))
+    else:
+        screen.blit(asset.buy_button_up, (buy_x, cluster_y))
 
-        if state.button_cooldowns["minus_buy"] > 0:
-            screen.blit(asset.minus_down, (minus_buy_x, cluster_y))
-        else:
-            screen.blit(asset.minus_up, (minus_buy_x, cluster_y))
+    minus_buy_rect = pygame.Rect(minus_buy_x, cluster_y, minus_w, cluster_h)
+    plus_buy_rect  = pygame.Rect(plus_buy_x,  cluster_y, plus_w,  cluster_h)
 
-        if state.button_cooldowns["plus_buy"] > 0:
-            screen.blit(asset.plus_down, (plus_buy_x, cluster_y))
-        else:
-            screen.blit(asset.plus_up, (plus_buy_x, cluster_y))
+    # minus buy button
+    if state.button_cooldowns["minus_buy"] > 0:
+        screen.blit(asset.minus_down, (minus_buy_x, cluster_y))
+    else:
+        screen.blit(asset.minus_up, (minus_buy_x, cluster_y))
 
-        max_buy_rect = pygame.Rect(max_buy_x, max_y, max_buy_w, cluster_h)
-        if state.button_cooldowns["max_buy"] > 0:
-            screen.blit(asset.max_down, (max_buy_x, max_y))
-        else:
-            screen.blit(asset.max_up, (max_buy_x, max_y))
+    # plus buy button
+    if state.button_cooldowns["plus_buy"] > 0:
+        screen.blit(asset.plus_down, (plus_buy_x, cluster_y))
+    else:
+        screen.blit(asset.plus_up, (plus_buy_x, cluster_y))
 
-        # ==================== SELL CLUSTER ====================
-        sell_rect = pygame.Rect(sell_x, cluster_y, sell_w, cluster_h)
-        if state.button_cooldowns["sell"] > 0:
-            screen.blit(asset.buy_button_down, (sell_x, cluster_y))  # TEMP SELLDOWN
-        else:
-            screen.blit(asset.buy_button_up, (sell_x, cluster_y))  # TEMP SELLUP
+    # MAX BUY
+    max_buy_rect = pygame.Rect(max_buy_x, max_y, max_buy_w, cluster_h)
+    if state.button_cooldowns["max_buy"] > 0:
+        screen.blit(asset.max_down, (max_buy_x, max_y))
+    else:
+        screen.blit(asset.max_up, (max_buy_x, max_y))
 
-        minus_sell_rect = pygame.Rect(minus_sell_x, cluster_y, minus_w, cluster_h)
-        plus_sell_rect = pygame.Rect(plus_sell_x, cluster_y, plus_w, cluster_h)
+    # =========================================================================
+    # SELL CLUSTER
+    # =========================================================================
+    sell_rect = pygame.Rect(sell_x, cluster_y, sell_w, cluster_h)
 
-        if state.button_cooldowns["minus_sell"] > 0:
-            screen.blit(asset.minus_down, (minus_sell_x, cluster_y))
-        else:
-            screen.blit(asset.minus_up, (minus_sell_x, cluster_y))
+    # Selling uses the BUY button art temporarily
+    if state.button_cooldowns["sell"] > 0:
+        screen.blit(asset.buy_button_down, (sell_x, cluster_y))
+    else:
+        screen.blit(asset.buy_button_up, (sell_x, cluster_y))
 
-        if state.button_cooldowns["plus_sell"] > 0:
-            screen.blit(asset.plus_down, (plus_sell_x, cluster_y))
-        else:
-            screen.blit(asset.plus_up, (plus_sell_x, cluster_y))
+    minus_sell_rect = pygame.Rect(minus_sell_x, cluster_y, minus_w, cluster_h)
+    plus_sell_rect  = pygame.Rect(plus_sell_x,  cluster_y, plus_w,  cluster_h)
 
-        max_sell_rect = pygame.Rect(max_sell_x, max_y, max_sell_w, cluster_h)
-        if state.button_cooldowns["max_sell"] > 0:
-            screen.blit(asset.max_down, (max_sell_x, max_y))
-        else:
-            screen.blit(asset.max_up, (max_sell_x, max_y))
+    # minus sell button
+    if state.button_cooldowns["minus_sell"] > 0:
+        screen.blit(asset.minus_down, (minus_sell_x, cluster_y))
+    else:
+        screen.blit(asset.minus_up, (minus_sell_x, cluster_y))
 
-        # ==================== REGISTER HITBOXES ====================
-        state.buy_button_rect = buy_rect
-        state.minus_button_buy_rect = minus_buy_rect
-        state.add_button_buy_rect = plus_buy_rect
-        state.max_button_buy_rect = max_buy_rect
+    # plus sell button
+    if state.button_cooldowns["plus_sell"] > 0:
+        screen.blit(asset.plus_down, (plus_sell_x, cluster_y))
+    else:
+        screen.blit(asset.plus_up, (plus_sell_x, cluster_y))
 
-        state.sell_button_rect = sell_rect
-        state.minus_button_sell_rect = minus_sell_rect
-        state.add_button_sell_rect = plus_sell_rect
-        state.max_button_sell_rect = max_sell_rect
+    # MAX SELL
+    max_sell_rect = pygame.Rect(max_sell_x, max_y, max_sell_w, cluster_h)
+    if state.button_cooldowns["max_sell"] > 0:
+        screen.blit(asset.max_down, (max_sell_x, max_y))
+    else:
+        screen.blit(asset.max_up, (max_sell_x, max_y))
 
+    # =========================================================================
+    # REGISTER HITBOXES
+    # =========================================================================
+    state.buy_button_rect = buy_rect
+    state.minus_button_buy_rect = minus_buy_rect
+    state.add_button_buy_rect = plus_buy_rect
+    state.max_button_buy_rect = max_buy_rect
 
+    state.sell_button_rect = sell_rect
+    state.minus_button_sell_rect = minus_sell_rect
+    state.add_button_sell_rect = plus_sell_rect
+    state.max_button_sell_rect = max_sell_rect
 
-        # Text overlays
-        screen.blit(font.render(f"BUY:{qty_text}", True, (0,0,0)),
-                    (buy_x + 80, cluster_y + 15))
+    # =========================================================================
+    # TEXT OVERLAYS
+    # =========================================================================
+    screen.blit(font.render(f"BUY:{qty_text}", True, (0,0,0)),
+                (buy_x + 80, cluster_y + 15))
 
-        screen.blit(font.render("MAX", True, (0,0,0)),
-                    (max_buy_x + 135, max_y + 15))
+    screen.blit(font.render("MAX", True, (0,0,0)),
+                (max_buy_x + 135, max_y + 15))
 
-        screen.blit(font.render(f"SELL:{qty_sell_text}", True, (0,0,0)),
-                    (sell_x + 80, cluster_y + 15))
+    screen.blit(font.render(f"SELL:{qty_sell_text}", True, (0,0,0)),
+                (sell_x + 80, cluster_y + 15))
 
-        screen.blit(font.render("MAX", True, (0,0,0)),
-                    (max_sell_x + 135, max_y + 15))
+    screen.blit(font.render("MAX", True, (0,0,0)),
+                (max_sell_x + 135, max_y + 15))
 
-
-
-
-
-
-        pygame.display.flip()
 def render_main_menu(screen, font):
     menu_running = True
     start_time = time.time()  # For fade-in + animations
@@ -740,27 +761,28 @@ def render_chart(font, state, screen):
     if state.selected_stock is None:
         return
 
-    if not hasattr(state, "prev_chart_zoom"):
-        state.prev_chart_zoom = state.chart_zoom
-
     # ----------------------------------------
-    # CHART LAYOUT
+    # CONSTANTS
     # ----------------------------------------
-    chart_x = 190
-    chart_width = 1326
-    chart_y = 350
+    chart_x      = 190
+    chart_width  = 1326
+    chart_y      = 350
     chart_height = 400
+    vol_height   = 120
 
-    panel_rect = pygame.Rect(chart_x - 8 , 90, chart_width + 12, 350 + 420)
+    # ----------------------------------------
+    # PANEL BACKGROUND
+    # ----------------------------------------
+    panel_rect = pygame.Rect(chart_x - 8, 90, chart_width + 12, 350 + 420)
     pygame.draw.rect(screen, (40, 0, 80), panel_rect)
 
     # ----------------------------------------
-    # BUTTONS
+    # BUTTONS (Volume / Candles)
     # ----------------------------------------
     button_y = 310
     button_x = 1040
 
-    volume_btn = pygame.Rect(button_x, button_y, 155, 30)
+    volume_btn  = pygame.Rect(button_x, button_y, 155, 30)
     candles_btn = pygame.Rect(button_x + 200, button_y, 155, 30)
 
     state.toggle_volume_rect = volume_btn
@@ -769,29 +791,24 @@ def render_chart(font, state, screen):
     pygame.draw.rect(screen, (80, 30, 120), volume_btn)
     pygame.draw.rect(screen, (80, 30, 120), candles_btn)
 
-    screen.blit(font.render(
-        "Volume: ON" if state.show_volume else "Volume: OFF",
-        True, (255,255,255)),
+    screen.blit(
+        font.render(f"Volume: {'ON' if state.show_volume else 'OFF'}", True, (255, 255, 255)),
         (volume_btn.x + 8, volume_btn.y + 5)
     )
-
-    screen.blit(font.render(
-        "Candles: ON" if state.show_candles else "Candles: OFF",
-        True, (255,255,255)),
+    screen.blit(
+        font.render(f"Candles: {'ON' if state.show_candles else 'OFF'}", True, (255, 255, 255)),
         (candles_btn.x + 8, candles_btn.y + 5)
     )
 
     # ----------------------------------------
-    # DATA
+    # FETCH STOCK + HISTORY
     # ----------------------------------------
-    stock_name = state.selected_stock
-    stock = state.tickers_obj[stock_name]
-    history = stock.day_history
+    stock = state.tickers_obj[state.selected_stock]
+    history = sorted(stock.day_history, key=lambda e: (e["day"], e["time"]))
 
     if len(history) < 2:
         return
 
-    history = sorted(history, key=lambda e: (e["day"], e["time"]))
     max_day = history[-1]["day"]
     min_day = max_day - 6
 
@@ -802,89 +819,74 @@ def render_chart(font, state, screen):
         return
 
     # ----------------------------------------
-    # ZOOM
+    # ZOOM + OFFSET
     # ----------------------------------------
     zoom = max(0.1, min(20.0, state.chart_zoom))
     state.chart_zoom = zoom
 
-    old_zoom = state.prev_chart_zoom
+    old_zoom = getattr(state, "prev_chart_zoom", zoom)
     old_visible = max(10, min(total_points, int(total_points / old_zoom)))
     new_visible = max(10, min(total_points, int(total_points / zoom)))
 
     mx, my = pygame.mouse.get_pos()
+    mouse_ratio = (mx - chart_x) / chart_width if chart_x <= mx <= chart_x + chart_width else 0.5
 
-    if chart_x <= mx <= chart_x + chart_width:
-        mouse_ratio = (mx - chart_x) / chart_width
-    else:
-        mouse_ratio = 0.5
+    if zoom != old_zoom:
+        mouse_index = state.chart_offset + mouse_ratio * old_visible
+        new_offset = int(mouse_index - new_visible * mouse_ratio)
+        state.chart_offset = max(0, min(total_points - new_visible, new_offset))
 
-    if state.chart_zoom != state.prev_chart_zoom:
-        mouse_data_index = state.chart_offset + mouse_ratio * old_visible
-        new_offset = int(mouse_data_index - new_visible * mouse_ratio)
-        new_offset = max(0, min(total_points - new_visible, new_offset))
-        state.chart_offset = new_offset
-
-    visible_count = new_visible
-    state.prev_chart_zoom = state.chart_zoom
-
-    visible_entries = full_window[state.chart_offset: state.chart_offset + visible_count]
+    visible_entries = full_window[state.chart_offset: state.chart_offset + new_visible]
+    state.prev_chart_zoom = zoom
 
     # ----------------------------------------
     # DX
     # ----------------------------------------
-    dx = chart_width / visible_count
+    dx = chart_width / new_visible
 
     # ----------------------------------------
     # PRICE RANGE
     # ----------------------------------------
-    lowest_price = min(e["low"] for e in visible_entries)
-    highest_price = max(e["high"] for e in visible_entries)
+    lowest_price  = min(p["low"] for p in visible_entries)
+    highest_price = max(p["high"] for p in visible_entries)
 
     if highest_price == lowest_price:
         highest_price += 0.01
 
-    def price_to_y(price_value):
-        n = (price_value - lowest_price) / (highest_price - lowest_price)
-        return chart_y + chart_height - (n * chart_height)
+    price_delta = highest_price - lowest_price
 
-    # X-coord for an index
-    def center_x(index):
-        # center of each candle inside its segment
-        return chart_x + index * dx + dx / 2
+    def price_to_y(p):
+        return chart_y + chart_height - ((p - lowest_price) / price_delta) * chart_height
+
+    def center_x(i):
+        return chart_x + i * dx + dx * 0.5
 
     # ----------------------------------------
-    # GRID LINES
+    # GRID (min/mid/max)
     # ----------------------------------------
     grid_color = (120, 50, 170)
+    key_levels = [highest_price, (highest_price + lowest_price) / 2, lowest_price]
 
-    # labeled min/mid/max
-    for p in [highest_price, (highest_price + lowest_price) / 2, lowest_price]:
+    for p in key_levels:
         y = price_to_y(p)
         pygame.draw.line(screen, grid_color, (chart_x, y), (chart_x + chart_width, y), 2)
         screen.blit(font.render(f"${p:.2f}", True, grid_color),
                     (chart_x + chart_width + 10, y - 10))
 
-    # horizontal grid lines
-    num_levels = 6
-    step = (highest_price - lowest_price) / num_levels
-    for i in range(num_levels + 1):
+    # horizontal subdivisions
+    step = price_delta / 6
+    for i in range(7):
         y = price_to_y(lowest_price + step * i)
         pygame.draw.line(screen, grid_color, (chart_x, y), (chart_x + chart_width, y), 1)
 
-    # vertical grid lines (skip leftmost + rightmost)
-    if dx >= 60:
-        every = 1
-    elif dx >= 30:
-        every = 2
-    elif dx >= 15:
-        every = 5
-    elif dx >= 7:
-        every = 10
-    else:
-        every = 20
+    # vertical subdivisions
+    if dx >= 60:   every = 1
+    elif dx >= 30: every = 2
+    elif dx >= 15: every = 5
+    elif dx >= 7:  every = 10
+    else:          every = 20
 
-    # draw only interior gridlines
-    for i in range(1, visible_count - 1, every):
+    for i in range(1, new_visible - 1, every):
         x = center_x(i)
         pygame.draw.line(screen, grid_color, (x, chart_y), (x, chart_y + chart_height), 1)
 
@@ -892,79 +894,67 @@ def render_chart(font, state, screen):
     # DRAGGING
     # ----------------------------------------
     mx, my = pygame.mouse.get_pos()
-    if pygame.mouse.get_pressed()[0]:
-        if chart_x <= mx <= chart_x + chart_width and chart_y <= my <= chart_y + chart_height:
-            if not state.chart_dragging:
-                state.chart_dragging = True
-                state.chart_drag_start_x = mx
-                state.chart_offset_start = state.chart_offset
+    left_pressed = pygame.mouse.get_pressed()[0]
 
-            drag_dx = mx - state.chart_drag_start_x
-            shift = int(drag_dx / dx)
+    if left_pressed and chart_x <= mx <= chart_x + chart_width and chart_y <= my <= chart_y + chart_height:
+        if not state.chart_dragging:
+            state.chart_dragging = True
+            state.chart_drag_start_x = mx
+            state.chart_offset_start = state.chart_offset
 
-            max_offset = max(0, total_points - visible_count)
-            state.chart_offset = max(0, min(state.chart_offset_start - shift, max_offset))
+        drag_dx = mx - state.chart_drag_start_x
+        shift = int(drag_dx / dx)
+        max_offset = max(0, total_points - new_visible)
+        state.chart_offset = max(0, min(state.chart_offset_start - shift, max_offset))
     else:
         state.chart_dragging = False
 
     # ----------------------------------------
-    # CANDLES (NO CLAMPING)
+    # CANDLES
     # ----------------------------------------
     if state.show_candles:
         for i, c in enumerate(visible_entries):
+
             x = center_x(i)
-
-            open_y = price_to_y(c["open"])
+            open_y  = price_to_y(c["open"])
             close_y = price_to_y(c["close"])
-            high_y = price_to_y(c["high"])
-            low_y = price_to_y(c["low"])
+            high_y  = price_to_y(c["high"])
+            low_y   = price_to_y(c["low"])
 
-            color = (0,200,0) if c["close"] >= c["open"] else (255,80,80)
+            color = (0, 200, 0) if c["close"] >= c["open"] else (255, 80, 80)
 
+            # tiny candle fallback
             if dx < 2:
                 pygame.draw.line(screen, color, (x, high_y), (x, low_y), 1)
                 continue
-            elif dx < 5:
-                body_width = 2
-            else:
-                body_width = dx * 0.7
 
-            body_left = x - body_width/2
+            body_w = 2 if dx < 5 else dx * 0.7
+            body_left = x - body_w / 2
             body_top = min(open_y, close_y)
-            body_height = abs(open_y - close_y)
+            body_h = abs(open_y - close_y)
 
-            # wick full width
+            # wick
             pygame.draw.line(screen, color, (x, high_y), (x, low_y), 2)
-
-            # FULL candle body — no clamping
-            pygame.draw.rect(screen, color,
-                             (body_left, body_top, body_width, body_height))
+            # body
+            pygame.draw.rect(screen, color, (body_left, body_top, body_w, body_h))
 
     else:
-        # line chart
-        pts = [(center_x(i), price_to_y(e["close"])) for i,e in enumerate(visible_entries)]
+        pts = [(center_x(i), price_to_y(e["close"])) for i, e in enumerate(visible_entries)]
         if len(pts) > 1:
-            pygame.draw.lines(screen, (255,255,255), False, pts, 2)
+            pygame.draw.lines(screen, (255, 255, 255), False, pts, 2)
 
     # ----------------------------------------
-    # VOLUME (MATCHES FULL CANDLE WIDTH)
+    # VOLUME
     # ----------------------------------------
     if state.show_volume:
-        vol_x = chart_x
         vol_y = chart_y + chart_height + 5
-        vol_w = chart_width
-        vol_h = 120
+        pygame.draw.rect(screen, (25, 0, 40), (chart_x - 8, vol_y, chart_width + 12, vol_height))
 
-        pygame.draw.rect(screen, (25,0,40), (vol_x - 8, vol_y, vol_w + 12, vol_h))
-
-        max_vol = max(e["volume"] for e in visible_entries)
-        if max_vol <= 0: max_vol = 1
+        max_vol = max(e["volume"] for e in visible_entries) or 1
 
         for i, e in enumerate(visible_entries):
-            volume = e["volume"]
-            h = (volume / max_vol) * vol_h
-
             x = center_x(i)
+            h = (e["volume"] / max_vol) * vol_height
 
             if dx < 2:
                 bar_w = 1
@@ -973,64 +963,57 @@ def render_chart(font, state, screen):
             else:
                 bar_w = dx * 0.6
 
-            left = x - bar_w/2
-            top = vol_y + vol_h - h
-            color = (0,180,0) if e["close"] >= e["open"] else (200,60,60)
+            left = x - bar_w / 2
+            top = vol_y + vol_height - h
+            color = (0, 180, 0) if e["close"] >= e["open"] else (200, 60, 60)
 
-            # FULL WIDTH volume bars — no clamping
             pygame.draw.rect(screen, color, (left, top, bar_w, h))
 
     # ----------------------------------------
     # TOOLTIP
     # ----------------------------------------
-    mx, my = pygame.mouse.get_pos()
     if chart_x <= mx <= chart_x + chart_width and chart_y <= my <= chart_y + chart_height:
-        if len(visible_entries) > 1:
-            idx = int((mx - chart_x) / dx)
-            idx = max(0, min(idx, len(visible_entries)-1))
-            e = visible_entries[idx]
 
-            if state.show_candles:
-                lines = [
-                    f"Day:   {e['day']}",
-                    f"Time:  {state.format_time(e['time'])}",
-                    f"Open:  ${e['open']:.2f}",
-                    f"High:  ${e['high']:.2f}",
-                    f"Low:   ${e['low']:.2f}",
-                    f"Close: ${e['close']:.2f}",
-                    f"Volume: {e['volume']:,}"
-                ]
-            else:
-                lines = [
-                    f"Day:   {e['day']}",
-                    f"Time:  {state.format_time(e['time'])}",
-                    f"Close: ${e['close']:.2f}",
-                    f"Volume: {e['volume']:,}"
-                ]
+        idx = int((mx - chart_x) / dx)
+        idx = max(0, min(idx, len(visible_entries) - 1))
+        e = visible_entries[idx]
 
-            # vertical guide
-            pygame.draw.line(screen, (255,255,255),
-                             (mx, chart_y), (mx, chart_y+chart_height), 1)
+        lines = [
+            f"Day:   {e['day']}",
+            f"Time:  {state.format_time(e['time'])}",
+            f"Open:  ${e['open']:.2f}",
+            f"High:  ${e['high']:.2f}",
+            f"Low:   ${e['low']:.2f}",
+            f"Close: ${e['close']:.2f}",
+            f"Volume: {e['volume']:,}"
+        ] if state.show_candles else [
+            f"Day:   {e['day']}",
+            f"Time:  {state.format_time(e['time'])}",
+            f"Close: ${e['close']:.2f}",
+            f"Volume: {e['volume']:,}"
+        ]
 
-            # highlight
-            yv = price_to_y(e["close"])
-            pygame.draw.circle(screen, (255,255,0), (mx, int(yv)), 6)
+        # vertical line
+        pygame.draw.line(screen, (255,255,255), (mx, chart_y), (mx, chart_y + chart_height), 1)
 
-            # tooltip box
-            padding = 8
-            w = max(font.render(t, True, (255,255,255)).get_width()
-                    for t in lines) + padding*2
-            h = len(lines) * font.get_height() + padding*2
+        # highlight dot
+        close_y = price_to_y(e["close"])
+        pygame.draw.circle(screen, (255,255,0), (mx, int(close_y)), 6)
 
-            r = pygame.Rect(mx+20, my+20, w, h)
-            pygame.draw.rect(screen, (20,20,40), r)
-            pygame.draw.rect(screen, (120,0,160), r, 2)
+        # tooltip box
+        padding = 8
+        w = max(font.render(t, True, (255,255,255)).get_width() for t in lines) + padding*2
+        h = len(lines) * font.get_height() + padding*2
+        r = pygame.Rect(mx + 20, my + 20, w, h)
 
-            ty = r.y + padding
-            for t in lines:
-                screen.blit(font.render(t, True, (255,255,255)),
-                            (r.x+padding, ty))
-                ty += font.get_height()
+        pygame.draw.rect(screen, (20,20,40), r)
+        pygame.draw.rect(screen, (120,0,160), r, 2)
+
+        ty = r.y + padding
+        for t in lines:
+            screen.blit(font.render(t, True, (255,255,255)), (r.x + padding, ty))
+            ty += font.get_height()
+
 
 def render_news_ticker(screen, font, messages, speed, offset, dt):
     w, h = screen.get_size()
