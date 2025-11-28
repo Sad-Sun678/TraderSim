@@ -963,7 +963,11 @@ class GameGUI:
         screen.blit(viz_surf, viz_text_rect)
 
         state.portfolio_ui["visualize"] = viz_rect
-
+        # register stock rows also
+        for stk, data in state.portfolio_mgr.portfolio.items():
+            if data["shares"] > 0:
+                state.portfolio_ui[stk] = state.portfolio_click_zones[stk]
+        state.ui.register_portfolio(state.portfolio_ui)
     def render_visualize_screen(self, screen, font, state):
         state.visualize_ui = {}
 
@@ -1170,15 +1174,74 @@ class GameGUI:
                         screen.blit(t, (tooltip_rect.x+padding, y))
                         y += text1.get_height() + 5
                     break
-
-        # BACK button
+        # BACK BUTTON
         back_rect = pygame.Rect(50, 950, 200, 60)
-        pygame.draw.rect(screen, (120, 0, 160), back_rect)
-        back_surf = font.render("BACK", True, (255,255,255))
-        screen.blit(back_surf, back_surf.get_rect(center=back_rect.center))
+        pygame.draw.rect(screen, (80, 0, 120), back_rect)
+
+        back_surf = font.render("BACK", True, (255, 255, 255))
+        back_text_rect = back_surf.get_rect(center=back_rect.center)
+        screen.blit(back_surf, back_text_rect)
+
         state.visualize_ui["back"] = back_rect
+        state.visualize_ui["slices"] = slice_hitboxes
 
+        state.ui.register_visualize(state.visualize_ui)
 
+    def fade_to_chart(self, screen, target_surface, duration=250):
+        clock = pygame.time.Clock()
+        frames = int(duration / 1000 * 60)
+
+        for i in range(frames):
+            alpha = int(255 * (i / frames))
+
+            temp = target_surface.copy()
+            temp.set_alpha(alpha)
+
+            screen.fill((0, 0, 0))
+            screen.blit(temp, (0, 0))
+            pygame.display.flip()
+
+            clock.tick(60)
+
+    def screen_transition(self, screen, old_surface, new_surface, duration=400):
+        """
+        Performs a fade-out of old_surface, switches, then fade-in to new_surface.
+        duration in ms.
+        """
+        clock = pygame.time.Clock()
+
+        # --------------------------
+        # FADE OUT (old screen)
+        # --------------------------
+        frames = int((duration / 1000) * 60)
+        for i in range(frames):
+            alpha = int((i / frames) * 255)
+
+            screen.blit(old_surface, (0, 0))
+
+            fade = pygame.Surface((1920, 1080))
+            fade.set_alpha(alpha)
+            fade.fill((0, 0, 0))
+            screen.blit(fade, (0, 0))
+
+            pygame.display.flip()
+            clock.tick(60)
+
+        # --------------------------
+        # FADE IN (new screen)
+        # --------------------------
+        for i in range(frames):
+            alpha = int((i / frames) * 255)
+
+            screen.blit(new_surface, (0, 0))
+
+            fade = pygame.Surface((1920, 1080))
+            fade.set_alpha(255 - alpha)
+            fade.fill((0, 0, 0))
+            screen.blit(fade, (0, 0))
+
+            pygame.display.flip()
+            clock.tick(60)
 
 
 def apply_crt_warp(surface, curve_strength=0.045):

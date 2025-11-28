@@ -1,5 +1,5 @@
 import pygame
-
+import math
 class UiEventManager:
     def __init__(self, state):
         self.state = state
@@ -30,6 +30,9 @@ class UiEventManager:
             "buy": 0, "plus_buy": 0, "minus_buy": 0, "max_buy": 0,
             "sell": 0, "plus_sell": 0, "minus_sell": 0, "max_sell": 0
         }
+        # Panel toggles
+        self.pending_switch = None
+        self.just_switched = False
 
         # UI rect caches
         self.sidebar_rects = None
@@ -40,8 +43,7 @@ class UiEventManager:
     # ------------------------------------------------
     # SCREEN CONTROL
     # ------------------------------------------------
-    def switch(self, screen_name):
-        self.current_screen = screen_name
+
 
     def is_screen(self, name):
         return self.current_screen == name
@@ -80,7 +82,6 @@ class UiEventManager:
     # ------------------------------------------------
     def handle_key(self, event, screen, header_font):
         state = self.state
-
         # ============================
         # ESC → PAUSE MENU
         # ============================
@@ -154,38 +155,53 @@ class UiEventManager:
     # ------------------------------------------------
     def handle_mouse(self, mx, my, sidebar_data, click_zones):
         state = self.state
-        print("HANDLE_MOUSE called with:", mx, my)
+        print(f"HANDLE_MOUSE called with:, {mx}, {my}\nClick Zones:{click_zones}")
 
         # ============================================
         # PORTFOLIO SCREEN
         # ============================================
         if self.is_screen("portfolio"):
 
-            # BACK
+            # Back
             if self.portfolio_rects.get("back") and self.portfolio_rects["back"].collidepoint(mx, my):
                 self.switch("normal")
                 return
 
-            # VISUALIZE
+            # Visualize
             if self.portfolio_rects.get("visualize") and self.portfolio_rects["visualize"].collidepoint(mx, my):
                 self.switch("visualize")
                 return
 
-            # Click stock
+            # Stock rows
             for stk, rect in self.portfolio_rects.items():
                 if stk in state.tickers and rect.collidepoint(mx, my):
                     self.selected_stock = stk
-                    self.state.selected_stock = stk     # <<< REQUIRED
+                    state.selected_stock = stk
                     self.switch("normal")
                     return
+
             return
 
         # ============================================
         # VISUALIZE SCREEN
         # ============================================
         if self.is_screen("visualize"):
+
+            # back button
             if self.visualize_rects.get("back") and self.visualize_rects["back"].collidepoint(mx, my):
                 self.switch("portfolio")
+                return
+
+            # slice click
+            slices = self.visualize_rects.get("slices", [])
+            for s in slices:
+                ang = s["start"] <= self._mouse_angle(mx, my) <= s["end"]
+                if ang:
+                    self.selected_stock = s["label"]
+                    self.state.selected_stock = s["label"]
+                    self.switch("normal")
+                    return
+
             return
 
         # ============================================
@@ -371,3 +387,16 @@ class UiEventManager:
                 state.show_visualize_screen = False
                 state.show_portfolio_screen = True
                 return
+
+    def _mouse_angle(self, mx, my):
+        cx, cy = 960, 540
+        dx = mx - cx
+        dy = my - cy
+        a = math.degrees(math.atan2(dy, dx))
+        if a < 0: a += 360
+        return a
+
+    def switch(self, screen_name):
+        self.pending_switch = screen_name
+        self.just_switched = True
+
