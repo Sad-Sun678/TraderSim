@@ -169,6 +169,7 @@ class GameState:
         # 8. SECTOR SENTIMENT SYSTEM
         # =====================================================
         self.sector_sentiment = {}
+        
         for ticker, data in self.tickers.items():
             self.sector_sentiment[data["sector"]] = 0.0
 
