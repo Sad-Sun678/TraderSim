@@ -11,7 +11,7 @@ import sqlite3
 import json
 DB_PATH = "game.db"
 
-
+from stock import Stock
 from gui import apply_cached_pixelation
 
 def db_connect():
@@ -38,6 +38,11 @@ class GameState:
         # 2. LOAD EVERYTHING FROM SQLITE
         # =====================================================
         self.load_from_db()
+        new_tickers = {}
+        for t, d in self.tickers.items():
+            new_tickers[t] = Stock(t, d)
+        self.tickers_obj = new_tickers
+
 
         # sync base state
         self.game_day = self.account["market_day"]
@@ -175,278 +180,28 @@ class GameState:
 
         self.market_mood = 0.0
 
-
     def apply_tick_price(self):
         self.market_time += self.minutes_per_tick
-
-        # rollover day at midnight
         while self.market_time >= 1440:
             self.market_time -= 1440
             self._advance_game_day()
 
         self.is_market_open = self.market_open <= self.market_time <= self.market_close
-        
-        for stock_name, stock_information in self.tickers.items():
-            breakout_force = 0.0
 
-            # --------------------------------------------
-            # INIT
-            # --------------------------------------------
-            base = stock_information["base_price"]
-            vol_cat = stock_information["volatility"]
-            gravity = stock_information["gravity"]
-            trend = stock_information["trend"]
-            previous_price = stock_information["last_price"]
-            current_price = stock_information["current_price"]
-            stock_information["last_price"] = current_price
-            company_name = stock_information["name"]
-            order_force_time_delta = self.recently_bought[stock_name]["order_force_time_delta"]
-            order_force = order_force_time_delta
+        for ticker, stock_obj in self.tickers_obj.items():
+            stock_obj.apply_tick(self)
 
-            # --------------------------------------------
-            # UPDATE ATH / ATL
-            # --------------------------------------------
-            if stock_information["history"]:
-                hist_max = max(stock_information["history"])
-                hist_min = min(stock_information["history"])
-                stock_information["ath"] = max(stock_information["ath"], hist_max)
-                stock_information["atl"] = min(stock_information["atl"], hist_min)
-
-            # --------------------------------------------
-            # 1. MEAN REVERSION
-            # --------------------------------------------
-            fair_value_force = (base - current_price) * (gravity * 1.3)
-
-            # --------------------------------------------
-            # 2. MOMENTUM
-            # --------------------------------------------
-            price_diff = current_price - previous_price
-            stock_information["trend"] = stock_information["trend"] * 0.9 + price_diff * 0.1
-            momentum_force = stock_information["trend"] * 0.01
-
-            # --------------------------------------------
-            # 3. VOLATILITY REGIME
-            # --------------------------------------------
-            vol_map = {
-                "low": (0.003, 0.015),
-                "medium": (0.015, 0.06),
-                "high": (0.04, 0.14)
-            }
-
-            # MULTIPLIER FIRST
-            vol_multiplier = max(0.75, min(3.0, stock_information["volume"] / stock_information["avg_volume"]))
-
-            sigma_min, sigma_max = vol_map[vol_cat]
-            sigma = random.uniform(sigma_min, sigma_max)
-
-            volatility_force = random.gauss(0, sigma) * vol_multiplier
-
-            # --------------------------------------------
-            # 4. ORDER PRESSURE (balanced + realistic)
-            # --------------------------------------------
-
-            # 1) GET AND DECAY BUY PRESSURE FIRST
-            order_force_time_delta = self.recently_bought[stock_name]["order_force_time_delta"]
-            order_force_time_delta *= 0.98  # exponential decay each tick
-            self.recently_bought[stock_name]["order_force_time_delta"] = order_force_time_delta
-
-            # 2) LIQUIDITY FACTOR (whales only move low-volume stocks)
-            avg_volume = stock_information["avg_volume"]
-            liquidity_factor = 1 / max(1.0, math.sqrt(avg_volume))
-
-            # 3) FINAL ORDER PRESSURE VALUE
-            order_force = order_force_time_delta * 0.000001 * liquidity_factor
-
-
-            # --------------------------------------------
-            # 5. SECTOR SENTIMENT
-            # --------------------------------------------
-            sector_force = self.sector_sentiment.get(stock_information["sector"], 0) * 0.003
-
-            # --------------------------------------------
-            # 6. VOLUME SIMULATION
-            # --------------------------------------------
-            base_vol = stock_information["avg_volume"]
-            vol = stock_information["volume"]
-            market_time = self.market_time
-
-            if self.is_market_open:
-
-                vol += (base_vol - vol) * 0.05
-                vol += random.randint(-int(base_vol * 0.025), int(base_vol * 0.025))
-
-                if "intraday_bias" not in stock_information:
-                    stock_information["intraday_bias"] = random.uniform(0.7, 1.3)
-                vol *= stock_information["intraday_bias"]
-
-                if "daily_volume_phase" not in stock_information or self.market_time < 5:
-                    stock_information["daily_volume_phase"] = random.uniform(-0.7, 0.7)
-
-                phase = stock_information["daily_volume_phase"]
-                time_ratio = (market_time - self.market_open) / max(1, self.market_close - self.market_open)
-                sin_wave = 1.0 + 0.25 * math.sin(6.28 * (time_ratio + phase))
-                vol *= sin_wave
-
-                if 570 <= market_time <= 615:
-                    vol *= random.uniform(1.2, 2.0)
-                elif 720 <= market_time <= 810:
-                    vol *= random.uniform(0.7, 0.95)
-                elif 900 <= market_time <= 960:
-                    vol *= random.uniform(1.1, 1.7)
-
-                if random.random() < 0.02:
-                    vol *= random.uniform(1.3, 3.2)
-
-            else:
-                target_ah = base_vol * random.uniform(0.08, 0.18)
-                vol += (target_ah - vol) * 0.15
-                vol += random.randint(-int(base_vol * 0.005), int(base_vol * 0.005))
-
-            # --------------------------------------------
-            # 7. SEASONAL EFFECTS
-            # --------------------------------------------
-            season = self.game_season
-            profile = self.season_profiles[season]
-            season_trend_force = profile["trend_bias"]
-
-            volatility_force *= profile["volatility_mult"]
-            vol *= profile["volume_mult"]
-
-            # --------------------------------------------
-            # 8. VOLUME CAP
-            # --------------------------------------------
-            if self.is_market_open:
-                if vol > stock_information["volume_cap"] * 0.7:
-                    stock_information["volume_cap"] *= random.uniform(1.01, 1.05)
-                elif vol < stock_information["volume_cap"] * 0.3:
-                    stock_information["volume_cap"] *= random.uniform(0.97, 0.995)
-                stock_information["volume_cap"] *= random.uniform(0.999, 1.001)
-
-            stock_information["volume_cap"] = max(base_vol * 5, min(stock_information["volume_cap"], base_vol * 40))
-            vol = max(150, min(vol, stock_information["volume_cap"]))
-            stock_information["volume"] = int(vol)
-
-            stock_information["volume_history"].append(vol)
-            if len(stock_information["volume_history"]) > 700:
-                stock_information["volume_history"].pop(0)
-
-            # --------------------------------------------
-            # 9. MARKET NOISE + MOOD
-            # --------------------------------------------
-            noise_force = random.gauss(0, 0.003 if self.is_market_open else 0.0004)
-
-            if random.random() < 0.002:
-                self.market_mood = random.uniform(-0.003, 0.002)
-            mood_force = self.market_mood
-
-            # --------------------------------------------
-            # FINAL PRICE
-            # --------------------------------------------
-            change = (
-                    fair_value_force +
-                    momentum_force +
-                    volatility_force +
-                    order_force +
-                    sector_force +
-                    noise_force +
-                    season_trend_force
-            )
-
-
-            new_price = max(0.01, current_price + change)
-            stock_information["current_price"] = round(new_price, 2)
-
-            # --------------------------------------------
-            # 9. BREAKOUT DETECTION + NEWS
-            # --------------------------------------------
-            last_close = current_price
-            recent_prices = stock_information.get("recent_prices", [])
-
-            cooldown = 120
-            t_now = self.market_time
-
-            if t_now - stock_information.get("last_breakout_time", -9999) >= cooldown:
-
-                if len(recent_prices) >= 20:
-
-                    window = recent_prices[-30:]
-                    recent_high = max(window)
-                    recent_low = min(window)
-
-                    breakout_up = last_close > recent_high * 1.01
-                    breakout_down = last_close < recent_low * 0.99
-
-                    if breakout_up:
-                        breakout_force = last_close * 0.004
-                        volatility_force *= 1.5
-                        stock_information["trend"] += last_close * 0.002
-                        stock_information["last_breakout_time"] = t_now
-
-                        self.news_messages.append({
-                            "text": f"{stock_name} breaks resistance! Bullish breakout!",
-                            "color": (0, 255, 0)
-                        })
-
-
-                    elif breakout_down:
-                        breakout_force = -last_close * 0.004
-                        volatility_force *= 1.6
-                        stock_information["trend"] -= last_close * 0.002
-                        stock_information["last_breakout_time"] = t_now
-                        self.news_messages.append({
-                            "text": f"{stock_name} breaks support! Bearish breakdown!",
-                            "color": (255, 80, 80)
-                        })
-
-
-                    change += breakout_force
-
-            # push history ONCE (fixed)
-            recent_prices.append(last_close)
-            recent_prices = recent_prices[-200:]
-            stock_information["recent_prices"] = recent_prices
-
-            # --------------------------------------------
-            # BUILD 5-MINUTE OHLC CANDLES (WITH MICRO-TICKS)
-            # --------------------------------------------
-
-            # Simulate 5 internal 1-minute price movements
-            micro_prices = []
-            micro_price = current_price
-            for i in range(5):
-                # small internal movement inside the candle
-                micro_change = random.gauss(0, sigma * 0.4)
-                micro_price = max(0.01, micro_price + micro_change)
-                micro_prices.append(micro_price)
-
-            # Add the micro-moves into the buffer
-            stock_information["ohlc_buffer"].extend(micro_prices)
-
-            # Add the final 5-minute closing price
-            stock_information["ohlc_buffer"].append(new_price)
-
-            prices = stock_information["ohlc_buffer"]
-
-            # Build proper OHLC candle
-            entry = {
-                "day": self.game_day,
-                "time": int(self.market_time),  # 5,10,15,20...
-                "open": prices[0],
-                "high": max(prices),
-                "low": min(prices),
-                "close": prices[-1],
-                "volume": stock_information["volume"]
-            }
-
-            stock_information["day_history"].append(entry)
-
-            # Reset buffer for next 5-minute candle
-            stock_information["ohlc_buffer"] = []
-
-            # Trim in-memory history
-            MAX_CANDLES = 2000
-            if len(stock_information["day_history"]) > MAX_CANDLES:
-                stock_information["day_history"].pop(0)
+            # sync → dict for UI & database
+            d = self.tickers[ticker]
+            d["current_price"] = stock_obj.current_price
+            d["last_price"] = stock_obj.last_price
+            d["trend"] = stock_obj.trend
+            d["ath"] = stock_obj.ath
+            d["atl"] = stock_obj.atl
+            d["volume"] = stock_obj.volume
+            d["volume_history"] = stock_obj.volume_history
+            d["recent_prices"] = stock_obj.recent_prices
+            d["day_history"] = stock_obj.day_history
 
     def _advance_game_day(self):
         # Move to next day
@@ -520,7 +275,7 @@ class GameState:
         try:
             print("button clicked")
             selected_stock = self.selected_stock
-            self.buy_stock(selected_stock,self.tickers[selected_stock]["buy_qty"])
+            self.buy_stock(selected_stock,data.buy_qty)
             print("handler passing to buy function")
         except NameError:
             print("Name Error")
@@ -631,7 +386,8 @@ class GameState:
                 "volume": row[12],
                 "avg_volume": row[13],
 
-                # ALWAYS EMPTY AT LOAD
+                # RUNTIME FIELDS
+                "volume_cap": row[13] * 12,  # DEFAULT CAP
                 "history": [],
                 "volume_history": [],
                 "recent_prices": [],
@@ -886,7 +642,7 @@ while running:
             if event.key == pygame.K_b:
                 s = state.selected_stock
                 if s:
-                    data = state.tickers[s]
+                    data = state.tickers_obj[s]
 
                     # Ensure the price will exceed the recent high
                     if "recent_prices" not in data or len(data["recent_prices"]) < 30:
@@ -903,7 +659,7 @@ while running:
             if event.type == pygame.KEYDOWN and event.key == pygame.K_KP0:  # NumPad 0
                 if state.selected_stock:
                     name = state.selected_stock
-                    data = state.tickers[name]
+                    data = state.tickers_obj[name]
 
                     # force price far BELOW recent low
                     recent_prices = data.get("recent_prices", [])
@@ -1034,29 +790,31 @@ while running:
                         }
 
                     state.portfolio[stock_name]["sell_qty"] = 0
-                    state.tickers[stock_name]["buy_qty"] = 0
+                    # state.tickers_obj[stock_name]["buy_qty"] = 0
                     continue
 
             # BUY +
             if state.add_button_buy_rect and state.add_button_buy_rect.collidepoint(mx, my):
                 state.button_cooldowns["plus_buy"] = 0.08
-                state.tickers[state.selected_stock]["buy_qty"] += 1
+                state.tickers_obj[state.selected_stock].buy_qty += 1
                 tick_sound_up.play()
 
             # BUY -
             if state.minus_button_buy_rect and state.minus_button_buy_rect.collidepoint(mx, my):
                 state.button_cooldowns["minus_buy"] = 0.08
-                if state.tickers[state.selected_stock]["buy_qty"] > 0:
-                    state.tickers[state.selected_stock]["buy_qty"] -= 1
+                if state.tickers_obj[state.selected_stock].buy_qty > 0:
+                    state.tickers_obj[state.selected_stock].buy_qty -= 1
                     tick_sound_down.play()
 
             # BUY MAX
             if state.max_button_buy_rect and state.max_button_buy_rect.collidepoint(mx, my):
                 state.button_cooldowns["max_buy"] = 0.08
+
                 s = state.selected_stock
                 cash = state.account["money"]
-                price = state.tickers[s]["current_price"]
-                state.tickers[s]["buy_qty"] = math.floor(cash / price)
+
+                price = state.tickers_obj[s].current_price
+                state.tickers_obj[s].buy_qty = math.floor(cash / price)
 
             # BUY
             if state.buy_button_rect and state.buy_button_rect.collidepoint(mx, my):

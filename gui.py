@@ -92,7 +92,7 @@ def render_info_panel(font, asset, screen, state):
         # chart constants used for alignment
 
         stock_name = state.selected_stock
-        data = state.tickers[stock_name]
+        data = state.tickers_obj[stock_name]
         portfolio = state.portfolio
 
         text_x = 380
@@ -131,23 +131,22 @@ def render_info_panel(font, asset, screen, state):
         max_y = cluster_y + cluster_h + 10
 
         # TEXT DATA
-        name_text = data["name"]
-        ticker_text = data["ticker"]
-        sector_text = data["sector"]
-        price_text = data["current_price"]
-        high_text = data["ath"]
-        low_text = data["atl"]
-        trend_text = data["trend"]
-        qty_text = data["buy_qty"]
+        name_text = data.name
+        ticker_text = data.ticker
+        sector_text = data.sector
+        price_text = data.current_price
+        high_text = data.ath
+        low_text = data.atl
+        trend_text = data.trend
+        qty_text = data.buy_qty
+        volume_text = data.volume
         qty_sell_text = state.portfolio[stock_name]["sell_qty"]
-        volume_text = data['volume']
-
         # Update ATH / ATL from candle data
-        if data["day_history"]:
-            hist_high = max(candle["high"] for candle in data["day_history"])
-            hist_low = min(candle["low"] for candle in data["day_history"])
-            data["ath"] = hist_high
-            data["atl"] = hist_low
+        if data.day_history:
+            hist_high = max(candle["high"] for candle in data.day_history)
+            hist_low = min(candle["low"] for candle in data.day_history)
+            data.ath = hist_high
+            data.atl = hist_low
 
         if stock_name in portfolio and portfolio[stock_name]["shares"] > 0:
             lst = portfolio[stock_name]["bought_at"]
@@ -786,7 +785,8 @@ def render_chart(font, state, screen):
     # DATA
     # ----------------------------------------
     stock_name = state.selected_stock
-    history = state.tickers[stock_name]["day_history"]
+    stock = state.tickers_obj[stock_name]
+    history = stock.day_history
 
     if len(history) < 2:
         return
