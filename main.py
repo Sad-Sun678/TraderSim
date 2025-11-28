@@ -32,6 +32,7 @@ class GameState:
         }
         self.portfolio = {}
         self.tickers = {}
+        self.recently_bought = {}
 
         # =====================================================
         # 2. LOAD EVERYTHING FROM SQLITE
@@ -55,6 +56,10 @@ class GameState:
             data.setdefault("history", [])
             data.setdefault("last_breakout_time", -9999)
             data.setdefault("volume_cap", data["avg_volume"] * 12)
+        for stock_name, stock_data in self.tickers.items():
+            self.recently_bought[stock_name] = {
+                "order_force_time_delta": 0
+            }
 
         # =====================================================
         # 4. UI & GAME STATE FLAGS
@@ -179,30 +184,32 @@ class GameState:
             self._advance_game_day()
 
         self.is_market_open = self.market_open <= self.market_time <= self.market_close
-
-        for name, data in self.tickers.items():
+        
+        for stock_name, stock_information in self.tickers.items():
             breakout_force = 0.0
 
             # --------------------------------------------
-            # BASIC SHORTCUTS
+            # INIT
             # --------------------------------------------
-            base = data["base_price"]
-            vol_cat = data["volatility"]
-            gravity = data["gravity"]
-            trend = data["trend"]
-
-            previous_price = data["last_price"]
-            current_price = data["current_price"]
-            data["last_price"] = current_price
+            base = stock_information["base_price"]
+            vol_cat = stock_information["volatility"]
+            gravity = stock_information["gravity"]
+            trend = stock_information["trend"]
+            previous_price = stock_information["last_price"]
+            current_price = stock_information["current_price"]
+            stock_information["last_price"] = current_price
+            company_name = stock_information["name"]
+            order_force_time_delta = self.recently_bought[stock_name]["order_force_time_delta"]
+            order_force = order_force_time_delta
 
             # --------------------------------------------
             # UPDATE ATH / ATL
             # --------------------------------------------
-            if data["history"]:
-                hist_max = max(data["history"])
-                hist_min = min(data["history"])
-                data["ath"] = max(data["ath"], hist_max)
-                data["atl"] = min(data["atl"], hist_min)
+            if stock_information["history"]:
+                hist_max = max(stock_information["history"])
+                hist_min = min(stock_information["history"])
+                stock_information["ath"] = max(stock_information["ath"], hist_max)
+                stock_information["atl"] = min(stock_information["atl"], hist_min)
 
             # --------------------------------------------
             # 1. MEAN REVERSION
@@ -213,8 +220,8 @@ class GameState:
             # 2. MOMENTUM
             # --------------------------------------------
             price_diff = current_price - previous_price
-            data["trend"] = data["trend"] * 0.9 + price_diff * 0.1
-            momentum_force = data["trend"] * 0.01
+            stock_information["trend"] = stock_information["trend"] * 0.9 + price_diff * 0.1
+            momentum_force = stock_information["trend"] * 0.01
 
             # --------------------------------------------
             # 3. VOLATILITY REGIME
@@ -226,7 +233,7 @@ class GameState:
             }
 
             # MULTIPLIER FIRST
-            vol_multiplier = max(0.75, min(3.0, data["volume"] / data["avg_volume"]))
+            vol_multiplier = max(0.75, min(3.0, stock_information["volume"] / stock_information["avg_volume"]))
 
             sigma_min, sigma_max = vol_map[vol_cat]
             sigma = random.uniform(sigma_min, sigma_max)
@@ -234,45 +241,56 @@ class GameState:
             volatility_force = random.gauss(0, sigma) * vol_multiplier
 
             # --------------------------------------------
-            # 4. ORDER PRESSURE
+            # 4. ORDER PRESSURE (balanced + realistic)
             # --------------------------------------------
-            order_force = data["buy_qty"] * 0.0005
-            data["volume"] += data["buy_qty"] * 12
+
+            # 1) GET AND DECAY BUY PRESSURE FIRST
+            order_force_time_delta = self.recently_bought[stock_name]["order_force_time_delta"]
+            order_force_time_delta *= 0.98  # exponential decay each tick
+            self.recently_bought[stock_name]["order_force_time_delta"] = order_force_time_delta
+
+            # 2) LIQUIDITY FACTOR (whales only move low-volume stocks)
+            avg_volume = stock_information["avg_volume"]
+            liquidity_factor = 1 / max(1.0, math.sqrt(avg_volume))
+
+            # 3) FINAL ORDER PRESSURE VALUE
+            order_force = order_force_time_delta * 0.000001 * liquidity_factor
+
 
             # --------------------------------------------
             # 5. SECTOR SENTIMENT
             # --------------------------------------------
-            sector_force = self.sector_sentiment.get(data["sector"], 0) * 0.003
+            sector_force = self.sector_sentiment.get(stock_information["sector"], 0) * 0.003
 
             # --------------------------------------------
             # 6. VOLUME SIMULATION
             # --------------------------------------------
-            base_vol = data["avg_volume"]
-            vol = data["volume"]
-            t = self.market_time
+            base_vol = stock_information["avg_volume"]
+            vol = stock_information["volume"]
+            market_time = self.market_time
 
             if self.is_market_open:
 
                 vol += (base_vol - vol) * 0.05
                 vol += random.randint(-int(base_vol * 0.025), int(base_vol * 0.025))
 
-                if "intraday_bias" not in data:
-                    data["intraday_bias"] = random.uniform(0.7, 1.3)
-                vol *= data["intraday_bias"]
+                if "intraday_bias" not in stock_information:
+                    stock_information["intraday_bias"] = random.uniform(0.7, 1.3)
+                vol *= stock_information["intraday_bias"]
 
-                if "daily_volume_phase" not in data or self.market_time < 5:
-                    data["daily_volume_phase"] = random.uniform(-0.7, 0.7)
+                if "daily_volume_phase" not in stock_information or self.market_time < 5:
+                    stock_information["daily_volume_phase"] = random.uniform(-0.7, 0.7)
 
-                phase = data["daily_volume_phase"]
-                time_ratio = (t - self.market_open) / max(1, self.market_close - self.market_open)
+                phase = stock_information["daily_volume_phase"]
+                time_ratio = (market_time - self.market_open) / max(1, self.market_close - self.market_open)
                 sin_wave = 1.0 + 0.25 * math.sin(6.28 * (time_ratio + phase))
                 vol *= sin_wave
 
-                if 570 <= t <= 615:
+                if 570 <= market_time <= 615:
                     vol *= random.uniform(1.2, 2.0)
-                elif 720 <= t <= 810:
+                elif 720 <= market_time <= 810:
                     vol *= random.uniform(0.7, 0.95)
-                elif 900 <= t <= 960:
+                elif 900 <= market_time <= 960:
                     vol *= random.uniform(1.1, 1.7)
 
                 if random.random() < 0.02:
@@ -297,19 +315,19 @@ class GameState:
             # 8. VOLUME CAP
             # --------------------------------------------
             if self.is_market_open:
-                if vol > data["volume_cap"] * 0.7:
-                    data["volume_cap"] *= random.uniform(1.01, 1.05)
-                elif vol < data["volume_cap"] * 0.3:
-                    data["volume_cap"] *= random.uniform(0.97, 0.995)
-                data["volume_cap"] *= random.uniform(0.999, 1.001)
+                if vol > stock_information["volume_cap"] * 0.7:
+                    stock_information["volume_cap"] *= random.uniform(1.01, 1.05)
+                elif vol < stock_information["volume_cap"] * 0.3:
+                    stock_information["volume_cap"] *= random.uniform(0.97, 0.995)
+                stock_information["volume_cap"] *= random.uniform(0.999, 1.001)
 
-            data["volume_cap"] = max(base_vol * 5, min(data["volume_cap"], base_vol * 40))
-            vol = max(150, min(vol, data["volume_cap"]))
-            data["volume"] = int(vol)
+            stock_information["volume_cap"] = max(base_vol * 5, min(stock_information["volume_cap"], base_vol * 40))
+            vol = max(150, min(vol, stock_information["volume_cap"]))
+            stock_information["volume"] = int(vol)
 
-            data["volume_history"].append(vol)
-            if len(data["volume_history"]) > 700:
-                data["volume_history"].pop(0)
+            stock_information["volume_history"].append(vol)
+            if len(stock_information["volume_history"]) > 700:
+                stock_information["volume_history"].pop(0)
 
             # --------------------------------------------
             # 9. MARKET NOISE + MOOD
@@ -333,19 +351,20 @@ class GameState:
                     season_trend_force
             )
 
+
             new_price = max(0.01, current_price + change)
-            data["current_price"] = round(new_price, 2)
+            stock_information["current_price"] = round(new_price, 2)
 
             # --------------------------------------------
             # 9. BREAKOUT DETECTION + NEWS
             # --------------------------------------------
             last_close = current_price
-            recent_prices = data.get("recent_prices", [])
+            recent_prices = stock_information.get("recent_prices", [])
 
             cooldown = 120
             t_now = self.market_time
 
-            if t_now - data.get("last_breakout_time", -9999) >= cooldown:
+            if t_now - stock_information.get("last_breakout_time", -9999) >= cooldown:
 
                 if len(recent_prices) >= 20:
 
@@ -359,11 +378,11 @@ class GameState:
                     if breakout_up:
                         breakout_force = last_close * 0.004
                         volatility_force *= 1.5
-                        data["trend"] += last_close * 0.002
-                        data["last_breakout_time"] = t_now
+                        stock_information["trend"] += last_close * 0.002
+                        stock_information["last_breakout_time"] = t_now
 
                         self.news_messages.append({
-                            "text": f"{name} breaks resistance! Bullish breakout!",
+                            "text": f"{stock_name} breaks resistance! Bullish breakout!",
                             "color": (0, 255, 0)
                         })
 
@@ -371,10 +390,10 @@ class GameState:
                     elif breakout_down:
                         breakout_force = -last_close * 0.004
                         volatility_force *= 1.6
-                        data["trend"] -= last_close * 0.002
-                        data["last_breakout_time"] = t_now
+                        stock_information["trend"] -= last_close * 0.002
+                        stock_information["last_breakout_time"] = t_now
                         self.news_messages.append({
-                            "text": f"{name} breaks support! Bearish breakdown!",
+                            "text": f"{stock_name} breaks support! Bearish breakdown!",
                             "color": (255, 80, 80)
                         })
 
@@ -384,7 +403,7 @@ class GameState:
             # push history ONCE (fixed)
             recent_prices.append(last_close)
             recent_prices = recent_prices[-200:]
-            data["recent_prices"] = recent_prices
+            stock_information["recent_prices"] = recent_prices
 
             # --------------------------------------------
             # BUILD 5-MINUTE OHLC CANDLES (WITH MICRO-TICKS)
@@ -400,12 +419,12 @@ class GameState:
                 micro_prices.append(micro_price)
 
             # Add the micro-moves into the buffer
-            data["ohlc_buffer"].extend(micro_prices)
+            stock_information["ohlc_buffer"].extend(micro_prices)
 
             # Add the final 5-minute closing price
-            data["ohlc_buffer"].append(new_price)
+            stock_information["ohlc_buffer"].append(new_price)
 
-            prices = data["ohlc_buffer"]
+            prices = stock_information["ohlc_buffer"]
 
             # Build proper OHLC candle
             entry = {
@@ -415,18 +434,18 @@ class GameState:
                 "high": max(prices),
                 "low": min(prices),
                 "close": prices[-1],
-                "volume": data["volume"]
+                "volume": stock_information["volume"]
             }
 
-            data["day_history"].append(entry)
+            stock_information["day_history"].append(entry)
 
             # Reset buffer for next 5-minute candle
-            data["ohlc_buffer"] = []
+            stock_information["ohlc_buffer"] = []
 
             # Trim in-memory history
             MAX_CANDLES = 2000
-            if len(data["day_history"]) > MAX_CANDLES:
-                data["day_history"].pop(0)
+            if len(stock_information["day_history"]) > MAX_CANDLES:
+                stock_information["day_history"].pop(0)
 
     def _advance_game_day(self):
         # Move to next day
@@ -452,21 +471,33 @@ class GameState:
         return portfolio_value
 
 
-    def buy_stock(self, stock_name, amount=1):
+    def buy_stock(self, stock_name, amount_purchased=1):
         data = self.tickers[stock_name]
         price = data["current_price"]
-        if self.account["money"] >= price * amount:
-            self.account["money"] -= price * amount
-            # portfolio update
+        if self.account["money"] >= price * amount_purchased:
+            #subtract total price from players money in account
+            self.account["money"] -= price * amount_purchased
+            # if not exists add log to recently_bought dict
+            if stock_name not in self.recently_bought:
+                self.recently_bought[stock_name] = {
+                    "order_force_time_delta":amount_purchased
+                }
+ 
+            # if not exists add log to self.portfolio
             if stock_name not in self.portfolio:
                 self.portfolio[stock_name] = {
                     "shares": 0,
                     "bought_at": []
                 }
-            self.portfolio[stock_name]["shares"] += amount
-            for _ in range(amount):
+            # add shares to players portfolio
+            self.portfolio[stock_name]["shares"] += amount_purchased
+            # add the amount purchased by the player to the order force td
+            self.recently_bought[stock_name]["order_force_time_delta"] += amount_purchased
+            
+            for _ in range(amount_purchased):
+                # used for calculating the rolling average buy price
                 self.portfolio[stock_name]["bought_at"].append(price)
-            print(f"Bought {amount} share(s) of {stock_name} at {price:.2f}")
+            print(f"Bought {amount_purchased} share(s) of {stock_name} at {price:.2f} at TIMESTAMP:{self.market_time}")
         else:
             print("Not enough money!")
 
@@ -739,17 +770,17 @@ class GameState:
         # ff.write_json("player", "account", self.account)
         # ff.write_json("player", "portfolio", self.portfolio)
 
-    def simulate_days(self, days):
-        """Fast-forward the market by a number of days for debugging."""
-        minutes_per_day = 1440
-        total_minutes = days * minutes_per_day
+    def simulate_days(self, days_to_simulate):
+        ticks_per_day = (self.market_close - self.market_open) // self.minutes_per_tick
 
-        # run ticks until we've advanced the requested time
-        target_time = self.market_time + total_minutes
-        start_day = self.game_day
+        for _ in range(days_to_simulate):
+            for _ in range(ticks_per_day):
+                self.apply_tick_price()
 
-        while (self.game_day - start_day) < days:
-            self.apply_tick_price()
+            self._advance_game_day()  # or whatever you use for day rollover
+
+        print("Finished sim:", days_to_simulate, "days")
+
     def format_time(self, minutes):
         h = minutes // 60
         m = minutes % 60
@@ -812,6 +843,8 @@ if choice == "quit":
     quit()
 running = True
 state = GameState()
+# SIMULATION FUNCTION
+# state.simulate_days(365)
 assets = GameAssets()
 ticker_x = 1920  # start fully off-screen to the right
 save_timer = 0
@@ -893,7 +926,6 @@ while running:
 
         # Chart zoom
         if event.type == pygame.MOUSEWHEEL:
-            print("ZOOMY ZOOM ZOOM")
             # store old zoom BEFORE changing
             state.prev_chart_zoom = state.chart_zoom
 

@@ -90,7 +90,7 @@ CREATE TABLE news (
 # ---------------------------------------------------------
 cur.execute("""
 INSERT INTO account (id, money, market_time, market_open, market_close, market_day)
-VALUES (1, 10000, 0, 570, 960, 1)
+VALUES (1, 1000000, 0, 570, 960, 1)
 """)
 
 # ---------------------------------------------------------
@@ -117,6 +117,46 @@ TICKERS_JSON = {
         "history": [],
         "day_history": []
     },
+"SOLV": {
+    "ticker": "SOLV",
+    "name": "Solvista Minerals",
+    "sector": "Materials",
+    "current_price": 1.42,
+    "last_price": 1.42,
+    "base_price": 1.30,
+    "volatility": "high",
+    "gravity": 0.00025,
+    "trend": 0,
+    "ath": 1.42,
+    "atl": 1.42,
+    "buy_qty": 0,
+    "volume": 3200,
+    "avg_volume": 3000,
+    "volume_history": [],
+    "history": [],
+    "day_history": []
+},
+"CYNT": {
+    "ticker": "CYNT",
+    "name": "Cynturion MicroTech",
+    "sector": "Technology",
+    "current_price": 2.37,
+    "last_price": 2.37,
+    "base_price": 2.10,
+    "volatility": "medium",
+    "gravity": 0.00022,
+    "trend": 0,
+    "ath": 2.37,
+    "atl": 2.37,
+    "buy_qty": 0,
+    "volume": 1800,
+    "avg_volume": 1500,
+    "volume_history": [],
+    "history": [],
+    "day_history": []
+},
+
+
     "GLBX": {
         "ticker": "GLBX",
         "name": "Globetronix Robotics",
