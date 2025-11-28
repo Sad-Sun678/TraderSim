@@ -69,3 +69,39 @@ class CandleManager:
                 })
 
         conn.close()
+
+    def add_price(self, stock_dict, day, time, price, volume, base_minutes=5):
+        """
+        Updates the OHLC candle for the current 5-minute bucket.
+        Automatically creates a new candle when needed.
+
+        stock_dict = ticker dict from GameState.tickers[t]
+        day, time = current simulation day/time
+        price = latest traded price
+        volume = traded volume
+        """
+
+        candles = stock_dict["day_history"]
+
+        # Determine current candle time bucket (e.g., 10:00, 10:05, 10:10...)
+        bucket = (time // base_minutes) * base_minutes
+
+        # If no candles yet OR new bucket → start new candle
+        if not candles or candles[-1]["time"] != bucket or candles[-1]["day"] != day:
+            candles.append({
+                "day": day,
+                "time": bucket,
+                "open": price,
+                "high": price,
+                "low": price,
+                "close": price,
+                "volume": volume
+            })
+            return
+
+        # Otherwise update the existing candle
+        c = candles[-1]
+        c["close"] = price
+        c["high"] = max(c["high"], price)
+        c["low"] = min(c["low"], price)
+        c["volume"] += volume

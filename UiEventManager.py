@@ -1,6 +1,6 @@
 import pygame
 
-class UIManager:
+class UiEventManager:
     def __init__(self, state):
         self.state = state
         self.current_screen = "normal"     # normal / portfolio / visualize
@@ -79,43 +79,75 @@ class UIManager:
     # KEY HANDLING
     # ------------------------------------------------
     def handle_key(self, event, screen, header_font):
+        state = self.state
 
-        # ESC → pause menu
+        # ============================
+        # ESC → PAUSE MENU
+        # ============================
         if event.key == pygame.K_ESCAPE:
-            choice = self.state.gui.render_pause_menu(screen, header_font, self.state)
+
+            # gui_system = your GameGUI instance
+            choice = state.gui_system.render_pause_menu(
+                screen,
+                header_font,
+                state
+            )
+
+            # --- handle results ---
             if choice == "quit":
-                self.state.autosave()
+                state.autosave()
                 return "quit"
+
             elif choice == "toggle_crt":
                 self.crt_enabled = not self.crt_enabled
 
-        # Debug breakpoint triggers
-        if event.key == pygame.K_b and self.selected_stock:
-            d = self.state.tickers_obj[self.selected_stock]
-            if len(d.recent_prices) < 30:
-                d.recent_prices = [d.current_price * 0.9] * 30
-            recent_high = max(d.recent_prices[-30:])
-            d.current_price = recent_high * 1.05
-            print("=== FORCED BREAKOUT ===")
+            return  # end ESC handling
 
-        if event.key == pygame.K_KP0 and self.selected_stock:
-            d = self.state.tickers_obj[self.selected_stock]
-            if d.recent_prices:
-                low = min(d.recent_prices[-30:])
-                forced = low * 0.90
-                d.current_price = forced
-                d.last_price = forced
-                d.recent_prices.append(forced)
-                d.recent_prices = d.recent_prices[-200:]
-                print("=== FORCED BREAKDOWN ===")
+        # ============================
+        # DEBUG / TEST HOTKEYS
+        # ============================
 
-        # chart panning
+        # Force breakout (KP 0 or B)
+        if event.key == pygame.K_b or event.key == pygame.K_KP0:
+            if self.selected_stock:
+                d = state.tickers_obj[self.selected_stock]
+
+                # ensure recent_prices exists
+                if len(d.recent_prices) < 30:
+                    d.recent_prices = [d.current_price * 0.9] * 30
+
+                recent_high = max(d.recent_prices[-30:])
+
+                d.current_price = recent_high * 1.05
+                d.last_price = d.current_price
+                print("=== FORCED BREAKOUT ===")
+            return
+
+        # Force breakdown (KP 1)
+        if event.key == pygame.K_KP1:
+            if self.selected_stock:
+                d = state.tickers_obj[self.selected_stock]
+
+                if d.recent_prices:
+                    low = min(d.recent_prices[-30:])
+                    forced = low * 0.90
+                    d.current_price = forced
+                    d.last_price = forced
+                    d.recent_prices.append(forced)
+                    d.recent_prices = d.recent_prices[-200:]
+                    print("=== FORCED BREAKDOWN ===")
+            return
+
+        # ============================
+        # CHART PANNING
+        # ============================
         if event.key == pygame.K_LEFT:
-            self.state.chart_offset -= 5
-        if event.key == pygame.K_RIGHT:
-            self.state.chart_offset += 5
+            state.chart_offset -= 5
+            return
 
-        return None
+        if event.key == pygame.K_RIGHT:
+            state.chart_offset += 5
+            return
 
     # ------------------------------------------------
     # MOUSE HANDLING
@@ -310,4 +342,32 @@ class UIManager:
                 try: state.sounds["chart"].play()
                 except: pass
 
+                return
+
+    def handle_portfolio_click(self, mx, my, state):
+        # Row clicks
+        for ticker, rect in state.portfolio_click_zones.items():
+            if rect.collidepoint(mx, my):
+                state.selected_stock = ticker
+                state.show_portfolio_screen = False
+                return
+
+        # Back button
+        if "back" in state.portfolio_ui:
+            if state.portfolio_ui["back"].collidepoint(mx, my):
+                state.show_portfolio_screen = False
+                return
+
+        # Visualize button
+        if "visualize" in state.portfolio_ui:
+            if state.portfolio_ui["visualize"].collidepoint(mx, my):
+                state.show_visualize_screen = True
+                return
+
+    def handle_visualize_click(self, mx, my, state):
+        # Back button
+        if "back" in state.visualize_ui:
+            if state.visualize_ui["back"].collidepoint(mx, my):
+                state.show_visualize_screen = False
+                state.show_portfolio_screen = True
                 return
