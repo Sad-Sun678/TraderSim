@@ -39,6 +39,11 @@ class UiEventManager:
         self.ticker_rects = None
         self.portfolio_rects = {}
         self.visualize_rects = {}
+        # ---- chart slide animation ----
+        self.chart_animating = False
+        self.chart_slide_y = 700  # starting below the chart area
+        self.chart_target_y = 350  # your usual chart_y
+        self.chart_start_y = 700  # off-screen start
 
     # ------------------------------------------------
     # SCREEN CONTROL
@@ -251,15 +256,21 @@ class UiEventManager:
                 if rect.collidepoint(mx, my):
 
                     self.selected_stock = stk
-                    self.state.selected_stock = stk     # <<< REQUIRED
+                    self.state.selected_stock = stk
+
+                    # ---- trigger slide-up animation ----
+                    self.chart_slide_y = self.chart_start_y  # reset to off-screen
+                    self.chart_animating = True
 
                     if stk not in state.portfolio:
                         state.portfolio[stk] = {"shares": 0, "bought_at": [], "sell_qty": 0}
                     else:
                         state.portfolio[stk]["sell_qty"] = 0
 
-                    try: state.sounds["chart"].play()
-                    except: pass
+                    try:
+                        state.sounds["chart"].play()
+                    except:
+                        pass
 
                     return
 

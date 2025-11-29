@@ -613,20 +613,59 @@ while running:
                 state.portfolio_value,
                 state
             )
-            click_zones = gui_system.render_tickers(assets.fonts['ticker_font'], state.tickers_obj, game_surface)
+
+            click_zones = gui_system.render_tickers(
+                assets.fonts['ticker_font'], state.tickers_obj, game_surface
+            )
             state.ui.register_tickers(click_zones)
-            sidebar_data = gui_system.render_side_bar(game_surface, assets.fonts['info_bar_font'], state)
+
+            sidebar_data = gui_system.render_side_bar(
+                game_surface, assets.fonts['info_bar_font'], state
+            )
             state.ui.register_sidebar(sidebar_data)
 
-            chart_buttons = gui_system.render_chart(assets.fonts['info_font'], state, game_surface)
+            # --------------------
+            # 1. Render chart to temp
+            # --------------------
+            chart_surface = pygame.Surface(game_surface.get_size(), pygame.SRCALPHA)
 
+            chart_buttons = gui_system.render_chart(
+                assets.fonts['info_font'], state, chart_surface
+            )
+
+            # --------------------
+            # 2. Slide animation
+            # --------------------
+            ui = state.ui
+
+            if ui.chart_animating:
+                ui.chart_slide_y += (ui.chart_target_y - ui.chart_slide_y) * 0.20
+
+                if abs(ui.chart_slide_y - ui.chart_target_y) < 1:
+                    ui.chart_slide_y = ui.chart_target_y
+                    ui.chart_animating = False
+
+                game_surface.blit(chart_surface, (0, ui.chart_slide_y - ui.chart_target_y))
+            else:
+                game_surface.blit(chart_surface, (0, 0))
+
+            # --------------------
+            # 3. Update toggle rects
+            # --------------------
             if chart_buttons:
                 state.toggle_volume_rect = chart_buttons["toggle_volume"]
                 state.toggle_candles_rect = chart_buttons["toggle_candles"]
 
-            gui_system.render_info_panel(assets.fonts['info_font'], assets, game_surface, state)
+            # --------------------
+            # 4. INFO PANEL OVER TOP (IMPORTANT)
+            # --------------------
+            gui_system.render_info_panel(
+                assets.fonts['info_font'], assets, game_surface, state
+            )
 
-            # NEWS ONLY ON MAIN SCREEN
+            # --------------------
+            # 5. NEWS (top-most overlay)
+            # --------------------
             state.news.update_and_draw(game_surface, dt)
 
         gui_system.screen_transition(screen, backbuffer, game_surface)
@@ -658,6 +697,7 @@ while running:
             state.portfolio_value,
             state
         )
+
         click_zones = gui_system.render_tickers(
             assets.fonts['ticker_font'], state.tickers_obj, game_surface
         )
@@ -668,24 +708,54 @@ while running:
         )
         state.ui.register_sidebar(sidebar_data)
 
+        # --------------------
+        # 1. Render chart to temp
+        # --------------------
+        chart_surface = pygame.Surface(game_surface.get_size(), pygame.SRCALPHA)
         chart_buttons = gui_system.render_chart(
-            assets.fonts['info_font'], state, game_surface
+            assets.fonts['info_font'], state, chart_surface
         )
+
+        # --------------------
+        # 2. Slide animation
+        # --------------------
+        ui = state.ui
+
+        if ui.chart_animating:
+            ui.chart_slide_y += (ui.chart_target_y - ui.chart_slide_y) * 0.20
+
+            if abs(ui.chart_slide_y - ui.chart_target_y) < 1:
+                ui.chart_slide_y = ui.chart_target_y
+                ui.chart_animating = False
+
+            game_surface.blit(chart_surface, (0, ui.chart_slide_y - ui.chart_target_y))
+        else:
+            game_surface.blit(chart_surface, (0, 0))
+
+        # --------------------
+        # 3. Update toggle rects
+        # --------------------
         if chart_buttons:
             state.toggle_volume_rect = chart_buttons["toggle_volume"]
             state.toggle_candles_rect = chart_buttons["toggle_candles"]
 
+        # --------------------
+        # 4. INFO PANEL OVER TOP (IMPORTANT)
+        # --------------------
         gui_system.render_info_panel(
             assets.fonts['info_font'], assets, game_surface, state
         )
 
-        # **ONLY MAIN SCREEN GETS NEWS**
+        # --------------------
+        # 5. NEWS (top-most overlay)
+        # --------------------
         state.news.update_and_draw(game_surface, dt)
 
     # ---------- PROCESS CLICK ----------
     if pending_click:
         mx, my = pending_click
-        state.ui.handle_mouse(mx, my, sidebar_data if state.ui.current_screen=="normal" else None,
+        state.ui.handle_mouse(mx, my,
+                              sidebar_data if state.ui.current_screen=="normal" else None,
                               click_zones if state.ui.current_screen=="normal" else None)
         pending_click = None
 
