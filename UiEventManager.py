@@ -40,14 +40,14 @@ class UiEventManager:
         # =========================================================
         # BUY / SELL BUTTON RECTS (old system still used elsewhere)
         # =========================================================
-        self.buy_button_rect = None
-        self.sell_button_rect = None
-        self.plus_buy_rect = None
-        self.minus_buy_rect = None
-        self.max_buy_rect = None
-        self.plus_sell_rect = None
-        self.minus_sell_rect = None
-        self.max_sell_rect = None
+        # self.buy_button_rect = None
+        # self.sell_button_rect = None
+        # self.plus_buy_rect = None
+        # self.minus_buy_rect = None
+        # self.max_buy_rect = None
+        # self.plus_sell_rect = None
+        # self.minus_sell_rect = None
+        # self.max_sell_rect = None
 
         # caret timing for blinking
         self.caret_timer = 0
@@ -98,10 +98,10 @@ class UiEventManager:
         # =========================================================
         # COOLDOWNS FOR OLD BUY/SELL BUTTONS
         # =========================================================
-        self.button_cooldowns = {
-            "buy": 0, "plus_buy": 0, "minus_buy": 0, "max_buy": 0,
-            "sell": 0, "plus_sell": 0, "minus_sell": 0, "max_sell": 0
-        }
+        # self.button_cooldowns = {
+        #     "buy": 0, "plus_buy": 0, "minus_buy": 0, "max_buy": 0,
+        #     "sell": 0, "plus_sell": 0, "minus_sell": 0, "max_sell": 0
+        # }
 
         # =========================================================
         # SCREEN SWITCHING
@@ -146,15 +146,15 @@ class UiEventManager:
         self.toggle_volume_rect = info.get("toggle_volume")
         self.toggle_candles_rect = info.get("toggle_candles")
 
-        self.plus_buy_rect = info.get("plus_buy")
-        self.minus_buy_rect = info.get("minus_buy")
-        self.max_buy_rect = info.get("max_buy")
-        self.buy_button_rect = info.get("buy")
-
-        self.plus_sell_rect = info.get("plus_sell")
-        self.minus_sell_rect = info.get("minus_sell")
-        self.max_sell_rect = info.get("max_sell")
-        self.sell_button_rect = info.get("sell")
+        # self.plus_buy_rect = info.get("plus_buy")
+        # self.minus_buy_rect = info.get("minus_buy")
+        # self.max_buy_rect = info.get("max_buy")
+        # self.buy_button_rect = info.get("buy")
+        #
+        # self.plus_sell_rect = info.get("plus_sell")
+        # self.minus_sell_rect = info.get("minus_sell")
+        # self.max_sell_rect = info.get("max_sell")
+        # self.sell_button_rect = info.get("sell")
 
     def register_sidebar(self, sidebar_data):
         self.sidebar_rects = sidebar_data
@@ -402,6 +402,7 @@ class UiEventManager:
         # ----------------------------------------------------------------------
         # 5. KEYPAD BUTTONS
         # ----------------------------------------------------------------------
+
         if self.sidebar_rects:
             for b in self.sidebar_rects:
                 if b["rect"].collidepoint(mx, my):
@@ -444,6 +445,154 @@ class UiEventManager:
                         state.ui.qty_text = t[:c] + digit + t[c:]
                         state.ui.qty_caret += 1
                         return
+                    # ----------------------------------------------------------
+                    # 5. KEYPAD + ACTION BUTTONS (new system)
+                    # ----------------------------------------------------------
+                    for b in sidebar_data:
+                        rect = b["rect"]
+                        action = b["action"]
+
+                        if rect.collidepoint(mx, my):
+
+                            # --------------------------
+                            # Digit pressed
+                            # --------------------------
+                            if action.endswith("_pressed"):
+                                digit = action[0]
+
+                                if state.ui.active_input == "qty":
+                                    t = state.ui.qty_text
+                                    c = state.ui.qty_caret
+                                    state.ui.qty_text = t[:c] + digit + t[c:]
+                                    state.ui.qty_caret += 1
+                                    return
+
+                                if state.ui.active_input == "limit":
+                                    t = state.ui.limit_text
+                                    c = state.ui.limit_caret
+                                    state.ui.limit_text = t[:c] + digit + t[c:]
+                                    state.ui.limit_caret += 1
+                                    return
+
+                                # default = qty
+                                t = state.ui.qty_text
+                                c = state.ui.qty_caret
+                                state.ui.qty_text = t[:c] + digit + t[c:]
+                                state.ui.qty_caret += 1
+                                return
+
+                            # --------------------------
+                            # Max input
+                            # --------------------------
+                            if action == "max_input":
+                                if self.selected_stock:
+                                    ticker = state.tickers_obj[self.selected_stock]
+                                    cash = state.account["money"]
+                                    qty = int(cash // ticker.current_price)
+                                    state.ui.qty_text = str(qty)
+                                    state.ui.qty_caret = len(state.ui.qty_text)
+                                return
+
+                            # --------------------------
+                            # Clear input
+                            # --------------------------
+                            if action == "clear_input":
+                                if state.ui.active_input == "limit":
+                                    state.ui.limit_text = ""
+                                    state.ui.limit_caret = 0
+                                else:
+                                    state.ui.qty_text = ""
+                                    state.ui.qty_caret = 0
+                                return
+
+                            # --------------------------
+                            # CONFIRM ORDER
+                            # --------------------------
+                            if action == "confirm_order":
+                                ticker = self.selected_stock
+                                if not ticker:
+                                    print("NO STOCK SELECTED")
+                                    return
+
+                                # Market must be open
+                                if not state.is_market_open:
+                                    print("MARKET CLOSED")
+                                    try:
+                                        state.sounds["error"].play()
+                                    except:
+                                        pass
+                                    return
+
+                                price = state.tickers_obj[ticker].current_price
+                                qty = int(state.ui.qty_text) if state.ui.qty_text else 0
+
+                                if qty <= 0:
+                                    print("INVALID QTY")
+                                    return
+
+                                order_type = state.ui.order_type.lower()
+
+                                # BUY MARKET
+                                if order_type == "buy - market order":
+                                    total_cost = qty * price
+                                    if state.account["money"] >= total_cost:
+                                        state.account["money"] -= total_cost
+                                        state.portfolio_mgr.buy_stock(ticker, qty)
+                                        try:
+                                            state.sounds["buy"].play()
+                                        except:
+                                            pass
+                                        print(f"BUY {qty} {ticker} @ {price:.2f}")
+                                    else:
+                                        print("NOT ENOUGH MONEY")
+                                    return
+
+                                # SELL MARKET
+                                if order_type == "sell - market order":
+                                    shares = state.portfolio.get(ticker, {}).get("shares", 0)
+                                    if shares >= qty:
+                                        state.portfolio_mgr.sell_stock(ticker, qty)
+                                        try:
+                                            state.sounds["sell"].play()
+                                        except:
+                                            pass
+                                        print(f"SELL {qty} {ticker} @ {price:.2f}")
+                                    else:
+                                        print("NOT ENOUGH SHARES")
+                                    return
+
+                                # BUY LIMIT
+                                if order_type == "buy - limit order":
+                                    if not state.ui.limit_text:
+                                        print("ENTER LIMIT PRICE")
+                                        return
+                                    limit_price = float(state.ui.limit_text)
+                                    if price <= limit_price:
+                                        total_cost = qty * price
+                                        if state.account["money"] >= total_cost:
+                                            state.account["money"] -= total_cost
+                                            state.portfolio_mgr.buy_stock(ticker, qty)
+                                            print(f"BUY LIMIT EXECUTED {qty} {ticker}")
+                                    else:
+                                        print(f"BUY LIMIT NOT TRIGGERED ({price:.2f} > {limit_price:.2f})")
+                                    return
+
+                                # SELL LIMIT
+                                if order_type == "sell - limit order":
+                                    if not state.ui.limit_text:
+                                        print("ENTER LIMIT PRICE")
+                                        return
+                                    limit_price = float(state.ui.limit_text)
+                                    shares = state.portfolio.get(ticker, {}).get("shares", 0)
+                                    if shares < qty:
+                                        print("NOT ENOUGH SHARES")
+                                        return
+                                    if price >= limit_price:
+                                        state.portfolio_mgr.sell_stock(ticker, qty)
+                                        print(f"SELL LIMIT EXECUTED {qty} {ticker}")
+                                    else:
+                                        print(f"SELL LIMIT NOT TRIGGERED ({price:.2f} < {limit_price:.2f})")
+                                    return
 
                     # --------------------------
                     # MAX button
@@ -468,6 +617,7 @@ class UiEventManager:
                             state.ui.qty_text = ""
                             state.ui.qty_caret = 0
                         return
+
 
         # ============================================
         # PORTFOLIO SCREEN
@@ -558,6 +708,9 @@ class UiEventManager:
                         # update BOTH ui.selected_stock and state.selected_stock
                         self.selected_stock = new_stock
                         self.state.selected_stock = new_stock
+                        # ensure portfolio entry exists
+                        if new_stock not in state.portfolio:
+                            state.portfolio[new_stock] = {"shares": 0, "bought_at": [], "sell_qty": 0}
 
                         # Start the normal "snap UP" animation
                         ui = self.state.ui
@@ -598,82 +751,6 @@ class UiEventManager:
 
                     return
 
-        # ============================================
-        # BUY / SELL BUTTONS
-        # ============================================
-        s = self.selected_stock
-        if s:
-
-            # ----- BUY PLUS -----
-            if self.plus_buy_rect and self.plus_buy_rect.collidepoint(mx, my):
-                self.button_cooldowns["plus_buy"] = 0.08
-                state.tickers_obj[s].buy_qty += 1
-                try: state.sounds["tick_up"].play()
-                except: pass
-                return
-
-            # ----- BUY MINUS -----
-            if self.minus_buy_rect and self.minus_buy_rect.collidepoint(mx, my):
-                self.button_cooldowns["minus_buy"] = 0.08
-                if state.tickers_obj[s].buy_qty > 0:
-                    state.tickers_obj[s].buy_qty -= 1
-                    try: state.sounds["tick_down"].play()
-                    except: pass
-                return
-
-            # ----- MAX BUY -----
-            if self.max_buy_rect and self.max_buy_rect.collidepoint(mx, my):
-                self.button_cooldowns["max_buy"] = 0.08
-                cash = state.account["money"]
-                price = state.tickers_obj[s].current_price
-                state.tickers_obj[s].buy_qty = int(cash // price)
-                return
-
-            # ----- BUY -----
-            if self.buy_button_rect and self.buy_button_rect.collidepoint(mx, my):
-                qty = state.tickers_obj[s].buy_qty
-                if state.is_market_open and qty > 0:
-                    before = state.portfolio[s]["shares"]
-                    state.portfolio_mgr.buy_stock(s, qty)
-                    if state.portfolio[s]["shares"] > before:
-                        try: state.sounds["buy"].play()
-                        except: pass
-                self.button_cooldowns["buy"] = 0.08
-                return
-
-            # ----- SELL -----
-            if self.sell_button_rect and self.sell_button_rect.collidepoint(mx, my):
-                qty = state.portfolio[s]["sell_qty"]
-                if state.is_market_open and qty > 0:
-                    state.portfolio_mgr.sell_stock(s, qty)
-                    try: state.sounds["sell"].play()
-                    except: pass
-                self.button_cooldowns["sell"] = 0.10
-                return
-
-            # ----- SELL MINUS -----
-            if self.minus_sell_rect and self.minus_sell_rect.collidepoint(mx, my):
-                self.button_cooldowns["minus_sell"] = 0.10
-                if state.portfolio[s]["sell_qty"] > 0:
-                    state.portfolio[s]["sell_qty"] -= 1
-                    try: state.sounds["tick_down"].play()
-                    except: pass
-                return
-
-            # ----- SELL PLUS -----
-            if self.plus_sell_rect and self.plus_sell_rect.collidepoint(mx, my):
-                self.button_cooldowns["plus_sell"] = 0.10
-                if state.portfolio[s]["sell_qty"] < state.portfolio[s]["shares"]:
-                    state.portfolio[s]["sell_qty"] += 1
-                    try: state.sounds["tick_up"].play()
-                    except: pass
-                return
-
-            # ----- MAX SELL -----
-            if self.max_sell_rect and self.max_sell_rect.collidepoint(mx, my):
-                self.button_cooldowns["max_sell"] = 0.10
-                state.portfolio[s]["sell_qty"] = state.portfolio[s]["shares"]
-                return
 
         # ============================================
         # NEWS TICKER
