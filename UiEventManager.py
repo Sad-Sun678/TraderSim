@@ -5,17 +5,41 @@ class UiEventManager:
         self.state = state
         self.current_screen = "normal"     # normal / portfolio / visualize
         self.crt_enabled = False
+        # === DRAWER (buy/sell panel) ===
+        self.drawer_width = 300  # width of the whole drawer
+        self.drawer_x_open = 1920 - 300  # 1620: fully visible position
+        self.drawer_x_closed = 1920  # fully hidden position (off-screen right)
 
-        # ==== UI STATE MOVED OUT OF GAMESTATE ====
+        # starting position (closed)
+        self.drawer_x = self.drawer_x_closed
+
+        # handle size and placement
+        self.handle_width = 20
+        self.handle_height = 120
+        self.handle_y = 500
+
+        # dragging state
+        self.drawer_dragging = False
+        self.drawer_drag_offset = 0
+        self.drawer_open_x = 1620  # fully open position
+        self.drawer_closed_x = 1920  # fully closed (off-screen)
+
+        # =========================================================
+        # STOCK SELECTION
+        # =========================================================
         self.selected_stock = None
 
-        # info-panel toggles
+        # =========================================================
+        # INFO PANEL TOGGLES
+        # =========================================================
         self.show_volume = False
         self.show_candles = False
         self.toggle_volume_rect = None
         self.toggle_candles_rect = None
 
-        # buy / sell buttons
+        # =========================================================
+        # BUY / SELL BUTTON RECTS (old system still used elsewhere)
+        # =========================================================
         self.buy_button_rect = None
         self.sell_button_rect = None
         self.plus_buy_rect = None
@@ -25,25 +49,81 @@ class UiEventManager:
         self.minus_sell_rect = None
         self.max_sell_rect = None
 
-        # cooldowns
+        # caret timing for blinking
+        self.caret_timer = 0
+        self.caret_visible = True
+
+        # =========================================================
+        # **********  UNIFIED ORDER INPUT SYSTEM  ***************
+        # Player chooses:
+        #   "Buy Market Order"
+        #   "Buy Limit Order"
+        #   "Sell Market Order"
+        #   "Sell Limit Order"
+        # =========================================================
+        self.order_type = "Buy Market Order"
+        self.order_dropdown_open = False
+
+        self.order_type_rect = None
+        self.order_option_rects = []   # list of (label, rect)
+
+        # =========================================================
+        # INPUT FIELDS (shared)
+        # =========================================================
+        self.active_input = None       # "qty" or "limit"
+
+        # BUY FIELDS
+        self.qty_text = ""
+        self.qty_caret = 0
+
+        self.limit_text = ""
+        self.limit_caret = 0
+
+        # SELL FIELDS
+        self.sell_qty_text = ""
+        self.sell_qty_caret = 0
+
+        self.sell_limit_text = ""
+        self.sell_limit_caret = 0
+
+        # Tracks which SELL field is active ("qty" or "limit")
+        self.sell_active_input = None
+
+        # rects for the rendered input fields (assigned every frame)
+        self.qty_rect = None
+        self.limit_rect = None
+        self.sell_qty_rect = None
+        self.sell_limit_rect = None
+
+        # =========================================================
+        # COOLDOWNS FOR OLD BUY/SELL BUTTONS
+        # =========================================================
         self.button_cooldowns = {
             "buy": 0, "plus_buy": 0, "minus_buy": 0, "max_buy": 0,
             "sell": 0, "plus_sell": 0, "minus_sell": 0, "max_sell": 0
         }
-        # Panel toggles
+
+        # =========================================================
+        # SCREEN SWITCHING
+        # =========================================================
         self.pending_switch = None
         self.just_switched = False
-        # ---- CHART ANIMATION SYSTEM ----
+
+        # =========================================================
+        # ********** CHART ANIMATION SYSTEM **********
+        # =========================================================
         self.chart_animating = False
-        self.chart_direction = "idle"  # "idle", "in", "out"
-        self.chart_target_y = 350  # where chart settles
-        self.chart_start_y = 1080  # off-screen bottom
+        self.chart_direction = "idle"       # "idle", "in", "out"
+        self.chart_target_y = 350           # resting position
+        self.chart_start_y = 1080           # off-screen bottom start
         self.chart_slide_y = self.chart_start_y
 
         self.old_chart_surface = None
         self.current_chart_surface = None
 
-        # UI rect caches
+        # =========================================================
+        # UI Cache (populated each frame)
+        # =========================================================
         self.sidebar_rects = None
         self.ticker_rects = None
         self.portfolio_rects = {}
@@ -93,27 +173,92 @@ class UiEventManager:
     # ------------------------------------------------
     def handle_key(self, event, screen, header_font):
         state = self.state
+
         # ============================
         # ESC → PAUSE MENU
         # ============================
         if event.key == pygame.K_ESCAPE:
-
-            # gui_system = your GameGUI instance
             choice = state.gui_system.render_pause_menu(
                 screen,
                 header_font,
                 state
             )
 
-            # --- handle results ---
             if choice == "quit":
                 state.autosave()
                 return "quit"
-
             elif choice == "toggle_crt":
                 self.crt_enabled = not self.crt_enabled
 
-            return  # end ESC handling
+            return  # done handling ESC
+
+        # ============================
+        # ORDER ENTRY TYPING (QTY / LIMIT)
+        # ============================
+        if self.active_input is not None:
+            # choose which field we're editing
+            if self.active_input == "qty":
+                text = self.qty_text
+                caret = self.qty_caret
+                allow_dot = False  # qty = int
+            else:  # "limit"
+                text = self.limit_text
+                caret = self.limit_caret
+                allow_dot = True  # limit price can have '.'
+
+            handled = False
+
+            # BACKSPACE
+            if event.key == pygame.K_BACKSPACE:
+                if caret > 0:
+                    text = text[:caret - 1] + text[caret:]
+                    caret -= 1
+                handled = True
+
+            # DELETE
+            elif event.key == pygame.K_DELETE:
+                if caret < len(text):
+                    text = text[:caret] + text[caret + 1:]
+                handled = True
+
+            # LEFT
+            elif event.key == pygame.K_LEFT:
+                if caret > 0:
+                    caret -= 1
+                handled = True
+
+            # RIGHT
+            elif event.key == pygame.K_RIGHT:
+                if caret < len(text):
+                    caret += 1
+                handled = True
+
+            # ENTER – optional submit, for now just ignore
+            elif event.key == pygame.K_RETURN:
+                handled = True
+
+            # NORMAL CHAR INPUT
+            else:
+                ch = event.unicode
+                if ch.isdigit():
+                    text = text[:caret] + ch + text[caret:]
+                    caret += 1
+                    handled = True
+                elif allow_dot and ch == "." and "." not in text:
+                    text = text[:caret] + ch + text[caret:]
+                    caret += 1
+                    handled = True
+
+            # write back to the correct field
+            if self.active_input == "qty":
+                self.qty_text = text
+                self.qty_caret = caret
+            else:
+                self.limit_text = text
+                self.limit_caret = caret
+
+            if handled:
+                return  # don't fall through to other hotkeys when typing
 
         # ============================
         # DEBUG / TEST HOTKEYS
@@ -124,12 +269,10 @@ class UiEventManager:
             if self.selected_stock:
                 d = state.tickers_obj[self.selected_stock]
 
-                # ensure recent_prices exists
                 if len(d.recent_prices) < 30:
                     d.recent_prices = [d.current_price * 0.9] * 30
 
                 recent_high = max(d.recent_prices[-30:])
-
                 d.current_price = recent_high * 1.05
                 d.last_price = d.current_price
                 print("=== FORCED BREAKOUT ===")
@@ -167,6 +310,164 @@ class UiEventManager:
     def handle_mouse(self, mx, my, sidebar_data, click_zones):
         state = self.state
         print(f"HANDLE_MOUSE called with:, {mx}, {my}\nClick Zones:{click_zones}")
+        # ======================================================================
+        # UNIFIED ORDER ENTRY PANEL (BUY + SELL)
+        # Dropdown, Qty, Limit, Numeric Pad
+        # ======================================================================
+        # HANDLE CLICKED — START DRAG
+        if state.ui.drawer_handle_rect and state.ui.drawer_handle_rect.collidepoint(mx, my):
+            self.drawer_dragging = True
+            self.drawer_drag_offset = mx - state.ui.drawer_x
+            return
+
+        # ----------------------------------------------------------------------
+        # 1. DROPDOWN OPEN → HANDLE OPTION CLICKS FIRST
+        # ----------------------------------------------------------------------
+        if state.ui.order_dropdown_open:
+
+            # Click an option
+            for opt_text, opt_rect in state.ui.order_option_rects:
+                if opt_rect.collidepoint(mx, my):
+                    # Store chosen order type
+                    state.ui.order_type = opt_text
+                    state.ui.order_dropdown_open = False
+
+                    # Reset fields each selection
+                    state.ui.active_input = None
+                    state.ui.qty_text = ""
+                    state.ui.limit_text = ""
+                    state.ui.qty_caret = 0
+                    state.ui.limit_caret = 0
+                    return
+
+            # Block clicking fields while dropdown is open
+            if state.ui.qty_rect and state.ui.qty_rect.collidepoint(mx, my):
+                return
+            if state.ui.limit_rect and state.ui.limit_rect.collidepoint(mx, my):
+                return
+
+        # ----------------------------------------------------------------------
+        # 2. MAIN DROPDOWN CLICK
+        # ----------------------------------------------------------------------
+        if state.ui.order_type_rect and state.ui.order_type_rect.collidepoint(mx, my):
+            state.ui.order_dropdown_open = not state.ui.order_dropdown_open
+            state.ui.active_input = None
+            return
+
+        # ----------------------------------------------------------------------
+        # 3. CLICK QTY FIELD
+        # ----------------------------------------------------------------------
+        if (not state.ui.order_dropdown_open and
+                state.ui.qty_rect and state.ui.qty_rect.collidepoint(mx, my)):
+
+            state.ui.active_input = "qty"
+
+            font = state.fonts["buy_input_font"]
+            rel_x = mx - (state.ui.qty_rect.left + 10)
+
+            txt = state.ui.qty_text
+            caret = 0
+            for i in range(len(txt) + 1):
+                if font.size(txt[:i])[0] >= rel_x:
+                    caret = i
+                    break
+
+            state.ui.qty_caret = caret
+            return
+
+        # ----------------------------------------------------------------------
+        # 4. CLICK LIMIT FIELD (only for limit orders)
+        # ----------------------------------------------------------------------
+        if (not state.ui.order_dropdown_open and
+                state.ui.limit_rect and state.ui.limit_rect.collidepoint(mx, my)):
+
+            state.ui.active_input = "limit"
+
+            font = state.fonts["buy_input_font"]
+            rel_x = mx - (state.ui.limit_rect.left + 10)
+
+            txt = state.ui.limit_text
+            caret = 0
+            for i in range(len(txt) + 1):
+                if font.size(txt[:i])[0] >= rel_x:
+                    caret = i
+                    break
+
+            state.ui.limit_caret = caret
+            return
+
+        # No text field active
+        state.ui.active_input = None
+
+        # ----------------------------------------------------------------------
+        # 5. KEYPAD BUTTONS
+        # ----------------------------------------------------------------------
+        if self.sidebar_rects:
+            for b in self.sidebar_rects:
+                if b["rect"].collidepoint(mx, my):
+                    action = b["action"]
+
+                    # Navigation
+                    if action == "view_portfolio":
+                        self.switch("portfolio")
+                        return
+                    if action == "open_shop":
+                        print("Shop")
+                        return
+                    if action == "view_analysis":
+                        print("Analysis")
+                        return
+
+                    # --------------------------
+                    # Digit pressed
+                    # --------------------------
+                    if action.endswith("_pressed"):
+                        digit = action[0]
+
+                        if state.ui.active_input == "qty":
+                            t = state.ui.qty_text
+                            c = state.ui.qty_caret
+                            state.ui.qty_text = t[:c] + digit + t[c:]
+                            state.ui.qty_caret += 1
+                            return
+
+                        if state.ui.active_input == "limit":
+                            t = state.ui.limit_text
+                            c = state.ui.limit_caret
+                            state.ui.limit_text = t[:c] + digit + t[c:]
+                            state.ui.limit_caret += 1
+                            return
+
+                        # default to qty if nothing selected
+                        t = state.ui.qty_text
+                        c = state.ui.qty_caret
+                        state.ui.qty_text = t[:c] + digit + t[c:]
+                        state.ui.qty_caret += 1
+                        return
+
+                    # --------------------------
+                    # MAX button
+                    # --------------------------
+                    if action == "max_input":
+                        if self.selected_stock:
+                            ticker = state.tickers_obj[self.selected_stock]
+                            cash = state.account["money"]
+                            qty = int(cash // ticker.current_price)
+                            state.ui.qty_text = str(qty)
+                            state.ui.qty_caret = len(state.ui.qty_text)
+                        return
+
+                    # --------------------------
+                    # CLEAR button
+                    # --------------------------
+                    if action == "clear_input":
+                        if state.ui.active_input == "limit":
+                            state.ui.limit_text = ""
+                            state.ui.limit_caret = 0
+                        else:
+                            state.ui.qty_text = ""
+                            state.ui.qty_caret = 0
+                        return
 
         # ============================================
         # PORTFOLIO SCREEN
@@ -192,7 +493,6 @@ class UiEventManager:
                     return
 
             return
-
         # ============================================
         # VISUALIZE SCREEN
         # ============================================
@@ -215,21 +515,10 @@ class UiEventManager:
 
             return
 
-        # ============================================
-        # SIDEBAR BUTTONS
-        # ============================================
-        if self.sidebar_rects:
-            for b in self.sidebar_rects:
-                if b["rect"].collidepoint(mx, my):
 
-                    if b["action"] == "view_portfolio":
-                        self.switch("portfolio")
-                    elif b["action"] == "open_shop":
-                        print("Shop")
-                    elif b["action"] == "view_analysis":
-                        print("Analysis")
 
-                    return
+
+
 
         # ============================================
         # INFO PANEL TOGGLES
@@ -480,3 +769,18 @@ class UiEventManager:
         self.pending_switch = screen_name
         self.just_switched = True
 
+    def handle_mouse_motion(self, mx, my, buttons):
+        # Only drag when left button is held
+        if self.drawer_dragging and buttons[0]:
+            new_x = mx - self.drawer_drag_offset
+            new_x = max(self.drawer_open_x, min(self.drawer_closed_x, new_x))
+            self.drawer_x = new_x
+        else:
+            # Mouse released → stop dragging + snap open/closed
+            if self.drawer_dragging:
+                self.drawer_dragging = False
+                midpoint = (self.drawer_open_x + self.drawer_closed_x) // 2
+                if self.drawer_x < midpoint:
+                    self.drawer_x = self.drawer_open_x
+                else:
+                    self.drawer_x = self.drawer_closed_x

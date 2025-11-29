@@ -1025,12 +1025,18 @@ class GameGUI:
 
     def render_side_bar(self, screen, font, state):
         """
-        Draws the sidebar and registers sidebar buttons
-        into the UIManager for centralized click handling.
+        Draws the main fixed sidebar (your original buttons)
+        AND draws the sliding drawer panel underneath it.
         """
 
+        # ===============================================================
+        # 0. STATIC SIDEBAR BACKGROUND (NEVER MOVES)
+        # ===============================================================
         pygame.draw.rect(screen, (104, 104, 104), (1620, 80, 300, 940))
 
+        # ===============================================================
+        # 1. YOUR ORIGINAL BUTTONS (UNCHANGED)
+        # ===============================================================
         buttons = [
             {"text": "View Portfolio", "action": "view_portfolio"},
             {"text": "Shop", "action": "open_shop"},
@@ -1061,10 +1067,175 @@ class GameGUI:
 
             bar_y += padding
 
-        # Tell UIManager where the sidebar buttons are
+        # Register the button bar
         state.ui.register_sidebar(sidebar_rects)
 
-        return sidebar_rects
+        # ===============================================================
+        # 2. DRAWER PANEL BACKGROUND (sliding, now pretty)
+        # ===============================================================
+        drawer_x = state.ui.drawer_x
+        drawer_w = state.ui.drawer_width
+        drawer_y = 360
+        drawer_h = 650
+
+        drawer_rect = pygame.Rect(drawer_x, drawer_y, drawer_w, drawer_h)
+
+        # --- Drawer drop shadow (only when drawer is visible on-screen) ---
+        if drawer_x < 1920:
+            shadow_rect = pygame.Rect(drawer_x - 6, drawer_y + 6, drawer_w, drawer_h)
+            pygame.draw.rect(screen, (0, 0, 0, 120), shadow_rect)
+
+        # --- Drawer gradient shading ---
+        for i in range(0, drawer_w):
+            shade = 255 - int((i / drawer_w) * 35)  # subtle gradient
+            pygame.draw.line(screen, (shade, shade, shade),
+                             (drawer_x + i, drawer_y),
+                             (drawer_x + i, drawer_y + drawer_h))
+
+        pygame.draw.rect(screen, (0, 0, 0), drawer_rect, 3)  # outer border
+
+        # ===============================================================
+        # 3. HANDLE (attaches to drawer & looks glossy)
+        # ===============================================================
+        handle_x = drawer_x - state.ui.handle_width
+        handle_y = state.ui.handle_y
+        handle_w = state.ui.handle_width
+        handle_h = state.ui.handle_height
+
+        handle_rect = pygame.Rect(handle_x, handle_y, handle_w, handle_h)
+
+        # --- Handle background (metallic gradient) ---
+        for i in range(handle_w):
+            g = 180 - int((i / handle_w) * 60)
+            pygame.draw.line(screen, (g, g, g),
+                             (handle_x + i, handle_y),
+                             (handle_x + i, handle_y + handle_h))
+
+        # --- Handle highlight/gloss ---
+        pygame.draw.line(screen, (255, 255, 255),
+                         (handle_x + 2, handle_y + 3),
+                         (handle_x + handle_w - 2, handle_y + 3), 2)
+
+        pygame.draw.line(screen, (230, 230, 230),
+                         (handle_x + 2, handle_y + handle_h - 4),
+                         (handle_x + handle_w - 2, handle_y + handle_h - 4), 2)
+
+        # --- Handle border ---
+        pygame.draw.rect(screen, (0, 0, 0), handle_rect, 3)
+
+        # --- Shadow where handle meets drawer ---
+        pygame.draw.line(screen, (0, 0, 0),
+                         (drawer_x, handle_y),
+                         (drawer_x, handle_y + handle_h), 3)
+
+        state.ui.drawer_handle_rect = handle_rect
+
+        # ===============================================================
+        # 4. DRAWER CONTENT (QTY, LIMIT, DROPDOWN, NUMPAD)
+        # ===============================================================
+
+        label_font = state.fonts["buy_input_font"]
+        PANEL_X = drawer_x  # drawer content moves with drawer
+        PANEL_Y = 360  # DO NOT MOVE
+        PANEL_W = 300
+        FIELD_H = 50
+        SPACING = 10
+
+
+
+        # ------------------------
+        # QTY FIELD
+        # ------------------------
+        qty_rect = pygame.Rect(PANEL_X, PANEL_Y + 60, PANEL_W, FIELD_H)
+        pygame.draw.rect(screen, (255, 255, 255), qty_rect)
+        pygame.draw.rect(screen, (0, 0, 0), qty_rect, 2)
+
+        qt = state.ui.qty_text if state.ui.qty_text else "Qty"
+        qc = (0, 0, 0) if state.ui.qty_text else (140, 140, 140)
+        screen.blit(label_font.render(qt, True, qc), (qty_rect.x + 10, qty_rect.y + 12))
+        state.ui.qty_rect = qty_rect
+
+        # ------------------------
+        # LIMIT FIELD
+        # ------------------------
+        if "limit" in state.ui.order_type.lower():
+            limit_rect = pygame.Rect(PANEL_X, PANEL_Y + 120, PANEL_W, FIELD_H)
+            pygame.draw.rect(screen, (255, 255, 255), limit_rect)
+            pygame.draw.rect(screen, (0, 0, 0), limit_rect, 2)
+
+            lt = state.ui.limit_text if state.ui.limit_text else "Limit Price"
+            lc = (0, 0, 0) if state.ui.limit_text else (140, 140, 140)
+            screen.blit(label_font.render(lt, True, lc),
+                        (limit_rect.x + 10, limit_rect.y + 12))
+            state.ui.limit_rect = limit_rect
+        else:
+            state.ui.limit_rect = None
+
+        # ------------------------
+        # NUMBER PAD
+        # ------------------------
+        num_pad_buttons = [
+            {"text": "1", "action": "1_pressed"},
+            {"text": "2", "action": "2_pressed"},
+            {"text": "3", "action": "3_pressed"},
+            {"text": "4", "action": "4_pressed"},
+            {"text": "5", "action": "5_pressed"},
+            {"text": "6", "action": "6_pressed"},
+            {"text": "7", "action": "7_pressed"},
+            {"text": "8", "action": "8_pressed"},
+            {"text": "9", "action": "9_pressed"},
+            {"text": "Max", "action": "max_input"},
+            {"text": "0", "action": "0_pressed"},
+            {"text": "Clear", "action": "clear_input"},
+        ]
+
+        pad_start_y = PANEL_Y + 180
+        num_pad_rects = []
+
+        for i, btn in enumerate(num_pad_buttons):
+            row, col = divmod(i, 3)
+            x = PANEL_X + col * (70 + 10) + 20
+            y = pad_start_y + row * (50 + 10)
+
+            r = pygame.Rect(x, y, 70, 50)
+            pygame.draw.rect(screen, (40, 0, 80), r)
+            text_surf = font.render(btn["text"], True, (255, 255, 255))
+            screen.blit(text_surf, text_surf.get_rect(center=r.center))
+
+            num_pad_rects.append({"rect": r, "action": btn["action"]})
+
+        # Add number pad buttons to sidebar registry (important!)
+        state.ui.register_sidebar(sidebar_rects + num_pad_rects)
+        # ------------------------
+        # ORDER TYPE DROPDOWN
+        # ------------------------
+        dropdown_rect = pygame.Rect(PANEL_X, PANEL_Y, PANEL_W, 40)
+        pygame.draw.rect(screen, (255, 255, 255), dropdown_rect)
+        pygame.draw.rect(screen, (0, 0, 0), dropdown_rect, 2)
+        state.ui.order_type_rect = dropdown_rect
+
+        text = label_font.render(state.ui.order_type, True, (0, 0, 0))
+        screen.blit(text, (dropdown_rect.x + 10, dropdown_rect.y + 8))
+
+        # Dropdown menu
+        option_rects = []
+        if state.ui.order_dropdown_open:
+            oy = dropdown_rect.bottom
+            for opt in [
+                "Buy – Market Order",
+                "Buy – Limit Order",
+                "Sell – Market Order",
+                "Sell – Limit Order"
+            ]:
+                r = pygame.Rect(PANEL_X, oy, PANEL_W, 40)
+                pygame.draw.rect(screen, (255, 255, 255), r)
+                pygame.draw.rect(screen, (0, 0, 0), r, 2)
+                screen.blit(label_font.render(opt, True, (0, 0, 0)), (r.x + 10, r.y + 8))
+                option_rects.append((opt, r))
+                oy += 40
+
+        state.ui.order_option_rects = option_rects
+        return sidebar_rects + num_pad_rects
 
     def render_portfolio_screen(self, screen, font, state):
 

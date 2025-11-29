@@ -44,7 +44,8 @@ class GameState:
         "info_font": pygame.font.Font("assets/fonts/VCR_OSD_MONO_1.001.ttf", 20),
         "menu_font": pygame.font.Font("assets/fonts/VCR_OSD_MONO_1.001.ttf", 50),
         "sidebar_font": pygame.font.Font("assets/fonts/VCR_OSD_MONO_1.001.ttf", 50),
-        "info_bar_font": pygame.font.Font("assets/fonts/VCR_OSD_MONO_1.001.ttf", 16)
+        "info_bar_font": pygame.font.Font("assets/fonts/VCR_OSD_MONO_1.001.ttf", 16),
+        "buy_input_font":pygame.font.Font("assets/fonts/VCR_OSD_MONO_1.001.ttf", 16)
         }
 
         # =====================================================
@@ -100,6 +101,7 @@ class GameState:
         self.minus_button_buy_rect = None
         self.max_button_buy_rect = None
         self.max_button_sell_rect = None
+        self.buy_input_rect = None
         self.buy_button_pressed = False
         self.minus_buy_pressed = False
         self.plus_buy_pressed = False
@@ -107,7 +109,8 @@ class GameState:
         self.minus_sell_pressed = False
         self.plus_sell_pressed = False
         self.max_sell_pressed = False
-
+        self.buy_input_text = ""
+        self.buy_input_active = False
         self.button_cooldowns = {
             "buy": 0,
             "plus_buy": 0,
@@ -556,6 +559,10 @@ while running:
             state.prev_chart_zoom = state.chart_zoom
             state.chart_zoom *= (1.15 if event.y > 0 else 1 / 1.15)
             state.chart_zoom = max(0.1, min(200.0, state.chart_zoom))
+        if event.type == pygame.MOUSEMOTION:
+            mx, my = event.pos
+            buttons = pygame.mouse.get_pressed()
+            state.ui.handle_mouse_motion(mx, my, buttons)
 
         if event.type == pygame.MOUSEBUTTONDOWN:
             if state.ui.crt_enabled:
@@ -652,6 +659,10 @@ while running:
         gui_system.screen_transition(screen, backbuffer, game_surface)
         pygame.display.flip()
         continue
+    state.ui.caret_timer += dt
+    if state.ui.caret_timer >= 0.5:
+        state.ui.caret_timer = 0
+        state.ui.caret_visible = not state.ui.caret_visible
 
     # =====================================================
     # NORMAL RENDERING
