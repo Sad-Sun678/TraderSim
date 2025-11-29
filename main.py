@@ -175,6 +175,8 @@ class GameState:
         # (Unused now, but harmless)
         self.trend_decay_rate = 0.1
 
+        self.open_orders = []
+
         # =====================================================
         # 7. SEASONAL MODELS
         # =====================================================
@@ -237,6 +239,7 @@ class GameState:
                 price=stock.current_price,
                 volume=stock.volume
             )
+        self.process_limit_orders()
 
     def _advance_game_day(self):
         # Move to next day
@@ -252,6 +255,43 @@ class GameState:
         if self.game_season > self.total_seasons:
             self.game_season = 1
             self.game_day = 1
+
+    def process_limit_orders(self):
+
+        # PREVENT EXECUTION AFTER HOURS
+        if not self.is_market_open:
+            return
+
+        new_list = []
+        for order in self.open_orders:
+            ticker = order["ticker"]
+            side = order["side"]
+            qty = order["qty"]
+            limit = order["limit_price"]
+
+            price = self.tickers_obj[ticker].current_price
+
+            # BUY LIMIT FILL
+            if side == "buy" and price <= limit:
+                cost = qty * price
+                if self.account["money"] >= cost:
+                    self.account["money"] -= cost
+                    self.portfolio_mgr.buy_stock(ticker, qty)
+                    print(f"BUY LIMIT FILLED: {qty} {ticker} @ {price:.2f}")
+                    continue
+
+            # SELL LIMIT FILL
+            if side == "sell" and price >= limit:
+                shares = self.portfolio.get(ticker, {}).get("shares", 0)
+                if shares >= qty:
+                    self.portfolio_mgr.sell_stock(ticker, qty)
+                    print(f"SELL LIMIT FILLED: {qty} {ticker} @ {price:.2f}")
+                    continue
+
+            # STILL OPEN — KEEP IT QUEUED
+            new_list.append(order)
+
+        self.open_orders = new_list
 
     def market_is_open(self):
         return self.market_open <= self.market_time <= self.market_close
@@ -542,6 +582,9 @@ while running:
     # =====================================================
     for event in pygame.event.get():
 
+        # -------------------------------------------------
+        # QUIT
+        # -------------------------------------------------
         if event.type == pygame.QUIT:
             t0 = time.time()
             state.autosave()
@@ -549,22 +592,33 @@ while running:
             running = False
             break
 
+        # -------------------------------------------------
+        # KEY INPUT
+        # -------------------------------------------------
         if event.type == pygame.KEYDOWN:
             result = state.ui.handle_key(event, screen, assets.fonts['header_font'])
             if result == "quit":
                 running = False
                 break
 
+        # -------------------------------------------------
+        # MOUSE WHEEL
+        # -------------------------------------------------
         if event.type == pygame.MOUSEWHEEL:
+            state.ui.pending_scroll -= event.y * 10
+
+            max_scroll = max(0, len(state.open_orders) * 22 - 60)
+            state.ui.pending_scroll = max(0, min(state.ui.pending_scroll, max_scroll))
+
             state.prev_chart_zoom = state.chart_zoom
             state.chart_zoom *= (1.15 if event.y > 0 else 1 / 1.15)
             state.chart_zoom = max(0.1, min(200.0, state.chart_zoom))
-        if event.type == pygame.MOUSEMOTION:
-            mx, my = event.pos
-            buttons = pygame.mouse.get_pressed()
-            state.ui.handle_mouse_motion(mx, my, buttons)
 
-        if event.type == pygame.MOUSEBUTTONDOWN:
+        # -------------------------------------------------
+        # MOUSE MOTION (DRAGGING)
+        # -------------------------------------------------
+        if event.type == pygame.MOUSEMOTION:
+
             if state.ui.crt_enabled:
                 unwarped = gui.crt_unwarp(*event.pos)
                 if unwarped is None:
@@ -572,6 +626,23 @@ while running:
                 mx, my = unwarped
             else:
                 mx, my = event.pos
+
+            buttons = pygame.mouse.get_pressed()
+            state.ui.handle_mouse_motion(mx, my, buttons)
+
+        # -------------------------------------------------
+        # MOUSE CLICK (BUTTON DOWN)
+        # -------------------------------------------------
+        if event.type == pygame.MOUSEBUTTONDOWN:
+
+            if state.ui.crt_enabled:
+                unwarped = gui.crt_unwarp(*event.pos)
+                if unwarped is None:
+                    continue
+                mx, my = unwarped
+            else:
+                mx, my = event.pos
+
             pending_click = (mx, my)
 
     # =====================================================

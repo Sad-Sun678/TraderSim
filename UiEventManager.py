@@ -61,7 +61,7 @@ class UiEventManager:
         #   "Sell Market Order"
         #   "Sell Limit Order"
         # =========================================================
-        self.order_type = "Buy Market Order"
+        self.order_type = "Buy - Market Order"
         self.order_dropdown_open = False
 
         self.order_type_rect = None
@@ -120,6 +120,7 @@ class UiEventManager:
 
         self.old_chart_surface = None
         self.current_chart_surface = None
+        self.pending_scroll = 0
 
         # =========================================================
         # UI Cache (populated each frame)
@@ -309,6 +310,9 @@ class UiEventManager:
     # ------------------------------------------------
     def handle_mouse(self, mx, my, sidebar_data, click_zones):
         state = self.state
+        if sidebar_data is None:
+            sidebar_data = []
+
         print(f"HANDLE_MOUSE called with:, {mx}, {my}\nClick Zones:{click_zones}")
         # ======================================================================
         # UNIFIED ORDER ENTRY PANEL (BUY + SELL)
@@ -396,16 +400,15 @@ class UiEventManager:
             state.ui.limit_caret = caret
             return
 
-        # No text field active
-        state.ui.active_input = None
-
         # ----------------------------------------------------------------------
-        # 5. KEYPAD BUTTONS
+        # 5. KEYPAD BUTTONS + CONFIRM ORDER  (FIXED — NOT NESTED)
         # ----------------------------------------------------------------------
 
+        # First: handle sidebar navigation separately
         if self.sidebar_rects:
             for b in self.sidebar_rects:
                 if b["rect"].collidepoint(mx, my):
+
                     action = b["action"]
 
                     # Navigation
@@ -419,9 +422,7 @@ class UiEventManager:
                         print("Analysis")
                         return
 
-                    # --------------------------
-                    # Digit pressed
-                    # --------------------------
+                    # Old digit logic (keep it)
                     if action.endswith("_pressed"):
                         digit = action[0]
 
@@ -439,184 +440,182 @@ class UiEventManager:
                             state.ui.limit_caret += 1
                             return
 
-                        # default to qty if nothing selected
+                        # default
                         t = state.ui.qty_text
                         c = state.ui.qty_caret
                         state.ui.qty_text = t[:c] + digit + t[c:]
                         state.ui.qty_caret += 1
                         return
-                    # ----------------------------------------------------------
-                    # 5. KEYPAD + ACTION BUTTONS (new system)
-                    # ----------------------------------------------------------
-                    for b in sidebar_data:
-                        rect = b["rect"]
-                        action = b["action"]
 
-                        if rect.collidepoint(mx, my):
+        # ----------------------------------------------------------------------
+        # Now handle the REAL keypad (num_pad_rects) — NOT inside sidebar loop
+        # ----------------------------------------------------------------------
+        for b in sidebar_data:
+            rect = b["rect"]
+            action = b["action"]
 
-                            # --------------------------
-                            # Digit pressed
-                            # --------------------------
-                            if action.endswith("_pressed"):
-                                digit = action[0]
+            if not rect.collidepoint(mx, my):
+                continue
 
-                                if state.ui.active_input == "qty":
-                                    t = state.ui.qty_text
-                                    c = state.ui.qty_caret
-                                    state.ui.qty_text = t[:c] + digit + t[c:]
-                                    state.ui.qty_caret += 1
-                                    return
+            # DIGITS
+            if action.endswith("_pressed"):
+                digit = action[0]
 
-                                if state.ui.active_input == "limit":
-                                    t = state.ui.limit_text
-                                    c = state.ui.limit_caret
-                                    state.ui.limit_text = t[:c] + digit + t[c:]
-                                    state.ui.limit_caret += 1
-                                    return
+                if state.ui.active_input == "qty":
+                    t = state.ui.qty_text
+                    c = state.ui.qty_caret
+                    state.ui.qty_text = t[:c] + digit + t[c:]
+                    state.ui.qty_caret += 1
+                    return
 
-                                # default = qty
-                                t = state.ui.qty_text
-                                c = state.ui.qty_caret
-                                state.ui.qty_text = t[:c] + digit + t[c:]
-                                state.ui.qty_caret += 1
-                                return
+                if state.ui.active_input == "limit":
+                    t = state.ui.limit_text
+                    c = state.ui.limit_caret
+                    state.ui.limit_text = t[:c] + digit + t[c:]
+                    state.ui.limit_caret += 1
+                    return
 
-                            # --------------------------
-                            # Max input
-                            # --------------------------
-                            if action == "max_input":
-                                if self.selected_stock:
-                                    ticker = state.tickers_obj[self.selected_stock]
-                                    cash = state.account["money"]
-                                    qty = int(cash // ticker.current_price)
-                                    state.ui.qty_text = str(qty)
-                                    state.ui.qty_caret = len(state.ui.qty_text)
-                                return
+                # default = qty
+                t = state.ui.qty_text
+                c = state.ui.qty_caret
+                state.ui.qty_text = t[:c] + digit + t[c:]
+                state.ui.qty_caret += 1
+                return
 
-                            # --------------------------
-                            # Clear input
-                            # --------------------------
-                            if action == "clear_input":
-                                if state.ui.active_input == "limit":
-                                    state.ui.limit_text = ""
-                                    state.ui.limit_caret = 0
-                                else:
-                                    state.ui.qty_text = ""
-                                    state.ui.qty_caret = 0
-                                return
+            # DOT
+            if action == "._pressed":
+                if state.ui.active_input == "limit" and "." not in state.ui.limit_text:
+                    t = state.ui.limit_text
+                    c = state.ui.limit_caret
+                    state.ui.limit_text = t[:c] + "." + t[c:]
+                    state.ui.limit_caret += 1
+                return
 
-                            # --------------------------
-                            # CONFIRM ORDER
-                            # --------------------------
-                            if action == "confirm_order":
-                                ticker = self.selected_stock
-                                if not ticker:
-                                    print("NO STOCK SELECTED")
-                                    return
+            # MAX
+            if action == "max_input":
+                if self.selected_stock:
+                    ticker = state.tickers_obj[self.selected_stock]
+                    cash = state.account["money"]
+                    qty = int(cash // ticker.current_price)
+                    state.ui.qty_text = str(qty)
+                    state.ui.qty_caret = len(state.ui.qty_text)
+                return
 
-                                # Market must be open
-                                if not state.is_market_open:
-                                    print("MARKET CLOSED")
-                                    try:
-                                        state.sounds["error"].play()
-                                    except:
-                                        pass
-                                    return
+            # CLEAR
+            if action == "clear_input":
+                if state.ui.active_input == "limit":
+                    state.ui.limit_text = ""
+                    state.ui.limit_caret = 0
+                else:
+                    state.ui.qty_text = ""
+                    state.ui.qty_caret = 0
+                return
 
-                                price = state.tickers_obj[ticker].current_price
-                                qty = int(state.ui.qty_text) if state.ui.qty_text else 0
+            # CONFIRM ORDER
+            if action == "confirm_order":
+                # Always sync stock selection
+                ticker = state.selected_stock
+                self.selected_stock = ticker
 
-                                if qty <= 0:
-                                    print("INVALID QTY")
-                                    return
+                if not ticker:
+                    print("NO STOCK SELECTED")
+                    return
+                price = state.tickers_obj[ticker].current_price
+                qty = int(state.ui.qty_text) if state.ui.qty_text else 0
 
-                                order_type = state.ui.order_type.lower()
+                if qty <= 0:
+                    print("INVALID QTY")
+                    return
 
-                                # BUY MARKET
-                                if order_type == "buy - market order":
-                                    total_cost = qty * price
-                                    if state.account["money"] >= total_cost:
-                                        state.account["money"] -= total_cost
-                                        state.portfolio_mgr.buy_stock(ticker, qty)
-                                        try:
-                                            state.sounds["buy"].play()
-                                        except:
-                                            pass
-                                        print(f"BUY {qty} {ticker} @ {price:.2f}")
-                                    else:
-                                        print("NOT ENOUGH MONEY")
-                                    return
+                order_type = state.ui.order_type.lower()
 
-                                # SELL MARKET
-                                if order_type == "sell - market order":
-                                    shares = state.portfolio.get(ticker, {}).get("shares", 0)
-                                    if shares >= qty:
-                                        state.portfolio_mgr.sell_stock(ticker, qty)
-                                        try:
-                                            state.sounds["sell"].play()
-                                        except:
-                                            pass
-                                        print(f"SELL {qty} {ticker} @ {price:.2f}")
-                                    else:
-                                        print("NOT ENOUGH SHARES")
-                                    return
+                # BUY MARKET
+                if order_type == "buy - market order":
+                    if not state.is_market_open:
+                        print("MARKET CLOSED — MARKET ORDER BLOCKED")
+                        return
+                    total_cost = qty * price
+                    if state.account["money"] >= total_cost:
+                        state.account["money"] -= total_cost
+                        state.portfolio_mgr.buy_stock(ticker, qty)
+                        try:
+                            state.sounds["buy"].play()
+                        except:
+                            pass
+                        print(f"BUY {qty} {ticker} @ {price:.2f}")
+                    else:
+                        print("NOT ENOUGH MONEY")
+                    return
 
-                                # BUY LIMIT
-                                if order_type == "buy - limit order":
-                                    if not state.ui.limit_text:
-                                        print("ENTER LIMIT PRICE")
-                                        return
-                                    limit_price = float(state.ui.limit_text)
-                                    if price <= limit_price:
-                                        total_cost = qty * price
-                                        if state.account["money"] >= total_cost:
-                                            state.account["money"] -= total_cost
-                                            state.portfolio_mgr.buy_stock(ticker, qty)
-                                            print(f"BUY LIMIT EXECUTED {qty} {ticker}")
-                                    else:
-                                        print(f"BUY LIMIT NOT TRIGGERED ({price:.2f} > {limit_price:.2f})")
-                                    return
+                # SELL MARKET
+                if order_type == "sell - market order":
+                    if not state.is_market_open:
+                        print("MARKET CLOSED — MARKET ORDER BLOCKED")
+                        return
+                    shares = state.portfolio.get(ticker, {}).get("shares", 0)
+                    if shares >= qty:
+                        state.portfolio_mgr.sell_stock(ticker, qty)
+                        try:
+                            state.sounds["sell"].play()
+                        except:
+                            pass
+                        print(f"SELL {qty} {ticker} @ {price:.2f}")
+                    else:
+                        print("NOT ENOUGH SHARES")
+                    return
 
-                                # SELL LIMIT
-                                if order_type == "sell - limit order":
-                                    if not state.ui.limit_text:
-                                        print("ENTER LIMIT PRICE")
-                                        return
-                                    limit_price = float(state.ui.limit_text)
-                                    shares = state.portfolio.get(ticker, {}).get("shares", 0)
-                                    if shares < qty:
-                                        print("NOT ENOUGH SHARES")
-                                        return
-                                    if price >= limit_price:
-                                        state.portfolio_mgr.sell_stock(ticker, qty)
-                                        print(f"SELL LIMIT EXECUTED {qty} {ticker}")
-                                    else:
-                                        print(f"SELL LIMIT NOT TRIGGERED ({price:.2f} < {limit_price:.2f})")
-                                    return
-
-                    # --------------------------
-                    # MAX button
-                    # --------------------------
-                    if action == "max_input":
-                        if self.selected_stock:
-                            ticker = state.tickers_obj[self.selected_stock]
-                            cash = state.account["money"]
-                            qty = int(cash // ticker.current_price)
-                            state.ui.qty_text = str(qty)
-                            state.ui.qty_caret = len(state.ui.qty_text)
+                # BUY LIMIT
+                if order_type == "buy - limit order":
+                    if not state.ui.limit_text:
+                        print("ENTER LIMIT PRICE")
                         return
 
-                    # --------------------------
-                    # CLEAR button
-                    # --------------------------
-                    if action == "clear_input":
-                        if state.ui.active_input == "limit":
-                            state.ui.limit_text = ""
-                            state.ui.limit_caret = 0
+                    limit_price = float(state.ui.limit_text)
+
+                    if state.is_market_open and price <= limit_price:
+                        total_cost = qty * price
+                        if state.account["money"] >= total_cost:
+                            state.account["money"] -= total_cost
+                            state.portfolio_mgr.buy_stock(ticker, qty)
+                            print(f"BUY LIMIT EXECUTED {qty} {ticker}")
                         else:
-                            state.ui.qty_text = ""
-                            state.ui.qty_caret = 0
+                            print("NOT ENOUGH CASH FOR LIMIT")
+                    else:
+                        state.open_orders.append({
+                            "ticker": ticker,
+                            "side": "buy",
+                            "qty": qty,
+                            "limit_price": limit_price
+                        })
+                        print(f"BUY LIMIT PLACED {qty} {ticker} @ {limit_price}")
+                    return
+
+                # SELL LIMIT
+                if order_type == "sell - limit order":
+                    if not state.ui.limit_text:
+                        print("ENTER LIMIT PRICE")
                         return
+
+                    limit_price = float(state.ui.limit_text)
+                    shares = state.portfolio.get(ticker, {}).get("shares", 0)
+
+                    if shares < qty:
+                        print("NOT ENOUGH SHARES")
+                        return
+
+                    if state.is_market_open and price >= limit_price:
+                        state.portfolio_mgr.sell_stock(ticker, qty)
+                        print(f"SELL LIMIT EXECUTED {qty} {ticker}")
+                    else:
+                        state.open_orders.append({
+                            "ticker": ticker,
+                            "side": "sell",
+                            "qty": qty,
+                            "limit_price": limit_price
+                        })
+                        print(f"SELL LIMIT PLACED {qty} {ticker} @ {limit_price}")
+
+                    return
 
 
         # ============================================

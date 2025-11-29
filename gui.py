@@ -50,11 +50,25 @@ class GameGUI:
     # HEADER BAR
     # =====================================================
     def render_header(self, font, account, screen, time_left, portfolio_value, state):
-        # Background bar
-        pygame.draw.rect(screen, (104, 104, 104), (0, 0, 1920, 80))
+        # ===============================================================
+        # TOP BAR — SAME SIDEBAR GRADIENT, NO BORDER
+        # ===============================================================
+        top_x = 0
+        top_y = 0
+        top_w = 1920
+        top_h = 80
+
+        for i in range(top_h):
+            shade = 50 + int(30 * (i / top_h))  # EXACT same gradient math as sidebar
+            pygame.draw.line(
+                screen,
+                (shade, 0, 90),
+                (top_x, top_y + i),
+                (top_x + top_w, top_y + i)
+            )
 
         # Title
-        title_surface = font.render(f"TRADER VIEW  |  Day {state.game_day}", True, (0, 0, 139))
+        title_surface = font.render(f"TRADER VIEW V0.4  |  Day {state.game_day}", True, (0, 0, 0))
         screen.blit(title_surface, (20, 30))
 
         # CASH
@@ -996,8 +1010,8 @@ class GameGUI:
         # ===============================================================
         drawer_x = state.ui.drawer_x
         drawer_w = state.ui.drawer_width
-        drawer_y = 360
-        drawer_h = 650
+        drawer_y = 150
+        drawer_h = 860
 
         drawer_radius = 20
 
@@ -1015,10 +1029,10 @@ class GameGUI:
 
         for i in range(drawer_h):
             pct = i / drawer_h
-            r = int(200 - pct * 70)
+            text_rect_bg = int(200 - pct * 70)
             g = int(185 - pct * 85)
             b = int(255 - pct * 40)
-            pygame.draw.line(temp, (r, g, b), (0, i), (drawer_w, i))
+            pygame.draw.line(temp, (text_rect_bg, g, b), (0, i), (drawer_w, i))
 
         mask = pygame.Surface((drawer_w, drawer_h), pygame.SRCALPHA)
         pygame.draw.rect(mask, (255, 255, 255), mask.get_rect(),
@@ -1040,96 +1054,113 @@ class GameGUI:
         screen.blit(panel, (drawer_x, drawer_y))
 
         # ===============================================================
-        # 3. HANDLE (radius 4, no overlap issues)
+        # 3. HANDLE (radius 4 — NEVER warped, always accurate)
         # ===============================================================
+
         handle_x = drawer_x - state.ui.handle_width
         handle_y = state.ui.handle_y
         handle_w = state.ui.handle_width
         handle_h = state.ui.handle_height
 
-        handle_rect = pygame.Rect(handle_x, handle_y, handle_w, handle_h)
+        # ---------------------------------------------------------------
+        # 1. REAL HITBOX (NEVER WARPED)
+        # ---------------------------------------------------------------
+        real_handle_rect = pygame.Rect(handle_x, handle_y, handle_w, handle_h)
+        state.ui.drawer_handle_rect = real_handle_rect  # used for clicking + dragging
 
-        # metallic gradient
-        for i in range(handle_w):
-            shade = 160 + int(40 * (i / handle_w))
+        # ---------------------------------------------------------------
+        # 2. DRAWING RECT (ALSO NEVER WARPED — FIXES CRT BUG)
+        # ---------------------------------------------------------------
+        draw_handle_rect = real_handle_rect  # draw exactly where the hitbox is
+
+        # ---------------------------------------------------------------
+        # 3. METALLIC HANDLE LOOK
+        # ---------------------------------------------------------------
+
+        # vertical metallic gradient
+        for i in range(draw_handle_rect.w):
+            shade = 160 + int(40 * (i / draw_handle_rect.w))
             pygame.draw.line(screen, (shade, shade, shade),
-                             (handle_x + i, handle_y),
-                             (handle_x + i, handle_y + handle_h))
+                             (draw_handle_rect.x + i, draw_handle_rect.y),
+                             (draw_handle_rect.x + i, draw_handle_rect.y + draw_handle_rect.h))
 
+        # top highlight
         pygame.draw.line(screen, (255, 255, 255),
-                         (handle_x + 2, handle_y + 3),
-                         (handle_x + handle_w - 2, handle_y + 3), 2)
+                         (draw_handle_rect.x + 2, draw_handle_rect.y + 3),
+                         (draw_handle_rect.x + draw_handle_rect.w - 2, draw_handle_rect.y + 3), 2)
 
+        # bottom highlight
         pygame.draw.line(screen, (200, 200, 200),
-                         (handle_x + 2, handle_y + handle_h - 4),
-                         (handle_x + handle_w - 2, handle_y + handle_h - 4), 2)
+                         (draw_handle_rect.x + 2, draw_handle_rect.y + draw_handle_rect.h - 4),
+                         (draw_handle_rect.x + draw_handle_rect.w - 2, draw_handle_rect.y + draw_handle_rect.h - 4), 2)
 
-        pygame.draw.rect(screen, (0, 0, 0), handle_rect, 3, border_radius=4)
-
-        pygame.draw.line(screen, (0, 0, 0),
-                         (drawer_x, handle_y),
-                         (drawer_x, handle_y + handle_h), 3)
-
-        state.ui.drawer_handle_rect = handle_rect
+        # border
+        pygame.draw.rect(screen, (0, 0, 0), draw_handle_rect, 3, border_radius=4)
 
         # ===============================================================
         # 4. DRAWER CONTENT (Qty / Limit / Keypad / Confirm)
         # ===============================================================
+
         label_font = state.fonts["buy_input_font"]
         PANEL_X = drawer_x
         PANEL_Y = 360
-        OFFSET_TOP = 100
+        OFFSET_TOP = 50
         PANEL_W = 300
         FIELD_H = 50
         field_radius = 6
 
-        # ------------------------
-        # QTY FIELD
-        # ------------------------
-        qty_rect = pygame.Rect(PANEL_X + 10,
-                               PANEL_Y + OFFSET_TOP + 60,
-                               PANEL_W - 20, FIELD_H)
+        # -------------------------------------------------------
+        # ✨ HIDE QTY + LIMIT INPUTS WHEN DROPDOWN MENU IS OPEN
+        # -------------------------------------------------------
+        if not state.ui.order_dropdown_open:
 
-        pygame.draw.rect(screen, (255, 255, 255), qty_rect, border_radius=field_radius)
-        pygame.draw.rect(screen, (0, 0, 0), qty_rect, 2, border_radius=field_radius)
+            # ------------------------
+            # QTY FIELD
+            # ------------------------
+            qty_rect = pygame.Rect(PANEL_X + 10,
+                                   PANEL_Y + OFFSET_TOP + 60,
+                                   PANEL_W - 20, FIELD_H)
 
-        qt = state.ui.qty_text if state.ui.qty_text else "Qty"
-        qc = (0, 0, 0) if state.ui.qty_text else (140, 140, 140)
-        screen.blit(label_font.render(qt, True, qc),
-                    (qty_rect.x + 10, qty_rect.y + 12))
+            pygame.draw.rect(screen, (255, 255, 255), qty_rect, border_radius=field_radius)
+            pygame.draw.rect(screen, (0, 0, 0), qty_rect, 2, border_radius=field_radius)
 
-        state.ui.qty_rect = qty_rect
+            qt = state.ui.qty_text if state.ui.qty_text else "Qty"
+            qc = (0, 0, 0) if state.ui.qty_text else (140, 140, 140)
+            screen.blit(label_font.render(qt, True, qc),
+                        (qty_rect.x + 10, qty_rect.y + 12))
 
-        if state.ui.active_input == "qty" and state.ui.caret_visible:
-            cx = qty_rect.x + 10 + label_font.size(state.ui.qty_text[:state.ui.qty_caret])[0]
-            pygame.draw.line(screen, (0, 0, 0),
-                             (cx, qty_rect.y + 8),
-                             (cx, qty_rect.y + FIELD_H - 8), 2)
+            state.ui.qty_rect = qty_rect
 
-        # ------------------------
-        # LIMIT FIELD
-        # ------------------------
-        limit_rect = None
-        if "limit" in state.ui.order_type.lower():
-            limit_rect = pygame.Rect(PANEL_X + 10,
-                                     PANEL_Y + OFFSET_TOP + 120,
-                                     PANEL_W - 20, FIELD_H)
+            if state.ui.active_input == "qty" and state.ui.caret_visible:
+                cx = qty_rect.x + 10 + label_font.size(state.ui.qty_text[:state.ui.qty_caret])[0]
+                pygame.draw.line(screen, (0, 0, 0),
+                                 (cx, qty_rect.y + 8),
+                                 (cx, qty_rect.y + FIELD_H - 8), 2)
 
-            pygame.draw.rect(screen, (255, 255, 255), limit_rect, border_radius=field_radius)
-            pygame.draw.rect(screen, (0, 0, 0), limit_rect, 2, border_radius=field_radius)
+            # ------------------------
+            # LIMIT FIELD (only when order type includes "limit")
+            # ------------------------
+            limit_rect = None
+            if "limit" in state.ui.order_type.lower():
+                limit_rect = pygame.Rect(PANEL_X + 10,
+                                         PANEL_Y + OFFSET_TOP + 120,
+                                         PANEL_W - 20, FIELD_H)
 
-            lt = state.ui.limit_text if state.ui.limit_text else "Limit Price"
-            lc = (0, 0, 0) if state.ui.limit_text else (140, 140, 140)
-            screen.blit(label_font.render(lt, True, lc),
-                        (limit_rect.x + 10, limit_rect.y + 12))
+                pygame.draw.rect(screen, (255, 255, 255), limit_rect, border_radius=field_radius)
+                pygame.draw.rect(screen, (0, 0, 0), limit_rect, 2, border_radius=field_radius)
 
-        state.ui.limit_rect = limit_rect
+                lt = state.ui.limit_text if state.ui.limit_text else "Limit Price"
+                lc = (0, 0, 0) if state.ui.limit_text else (140, 140, 140)
+                screen.blit(label_font.render(lt, True, lc),
+                            (limit_rect.x + 10, limit_rect.y + 12))
 
-        if state.ui.active_input == "limit" and limit_rect and state.ui.caret_visible:
-            cx = limit_rect.x + 10 + label_font.size(state.ui.limit_text[:state.ui.limit_caret])[0]
-            pygame.draw.line(screen, (0, 0, 0),
-                             (cx, limit_rect.y + 8),
-                             (cx, limit_rect.y + FIELD_H - 8), 2)
+            state.ui.limit_rect = limit_rect
+
+            if state.ui.active_input == "limit" and limit_rect and state.ui.caret_visible:
+                cx = limit_rect.x + 10 + label_font.size(state.ui.limit_text[:state.ui.limit_caret])[0]
+                pygame.draw.line(screen, (0, 0, 0),
+                                 (cx, limit_rect.y + 8),
+                                 (cx, limit_rect.y + FIELD_H - 8), 2)
 
         # ------------------------
         # KEYPAD
@@ -1138,97 +1169,223 @@ class GameGUI:
             {"text": "1", "action": "1_pressed"},
             {"text": "2", "action": "2_pressed"},
             {"text": "3", "action": "3_pressed"},
+
             {"text": "4", "action": "4_pressed"},
             {"text": "5", "action": "5_pressed"},
             {"text": "6", "action": "6_pressed"},
+
             {"text": "7", "action": "7_pressed"},
             {"text": "8", "action": "8_pressed"},
             {"text": "9", "action": "9_pressed"},
-            {"text": "Max", "action": "max_input"},
+
             {"text": "0", "action": "0_pressed"},
-            {"text": "Clear", "action": "clear_input"},
+            {"text": "Max", "action": "max_input"},
+            {"text": ".", "action": "._pressed"},
+
+            {"text": "Clear", "action": "clear_input", "full": True},
+
         ]
 
         pad_start_y = PANEL_Y + 280
         num_pad_rects = []
 
-        for i, btn in enumerate(num_pad_buttons):
-            row, col = divmod(i, 3)
-            x = PANEL_X + col * (70 + 10) + 35
-            y = pad_start_y + row * (50 + 10)
+        row_i = 0
+        col_i = 0
 
-            r = pygame.Rect(x, y, 70, 50)
+        for btn in num_pad_buttons:
 
-            # glossy keypad buttons (no radius needed)
+            is_full = btn.get("full", False)
+
+            if is_full:
+                # full-width button
+                x = PANEL_X + 35
+                y = pad_start_y + row_i * (50 + 10)
+                text_rect_bg = pygame.Rect(x, y, (70 * 3) + (10 * 2), 50)
+
+                # glossy button
+                for k in range(50):
+                    shade = 60 + int(40 * (k / 50))
+                    pygame.draw.line(screen, (shade, 0, 90),
+                                     (text_rect_bg.x, y + k),
+                                     (text_rect_bg.x + text_rect_bg.w, y + k))
+
+                pygame.draw.rect(screen, (200, 200, 255),
+                                 text_rect_bg, 2, border_radius=6)
+
+                txt = font.render(btn["text"], True, (255, 255, 255))
+                screen.blit(txt, txt.get_rect(center=text_rect_bg.center))
+
+                num_pad_rects.append({"rect": text_rect_bg,
+                                      "action": btn["action"]})
+
+                row_i += 1
+                col_i = 0
+                continue
+
+            # normal 3-column buttons
+            x = PANEL_X + col_i * (70 + 10) + 35
+            y = pad_start_y + row_i * (50 + 10)
+
+            text_rect_bg = pygame.Rect(x, y, 70, 50)
+
             for k in range(50):
-                shade = 50 + int(40 * (k / 50))
-                pygame.draw.line(screen, (shade, 0, 90), (x, y + k), (x + 70, y + k))
+                shade = 60 + int(40 * (k / 50))
+                pygame.draw.line(screen, (shade, 0, 90),
+                                 (x, y + k), (x + 70, y + k))
 
-            pygame.draw.rect(screen, (200, 200, 255), r, 2, border_radius=6)
+            pygame.draw.rect(screen, (200, 200, 255),
+                             text_rect_bg, 2, border_radius=6)
 
-            text_surf = font.render(btn["text"], True, (255, 255, 255))
-            screen.blit(text_surf, text_surf.get_rect(center=r.center))
+            txt = font.render(btn["text"], True, (255, 255, 255))
+            screen.blit(txt, txt.get_rect(center=text_rect_bg.center))
 
-            num_pad_rects.append({"rect": r, "action": btn["action"]})
+            num_pad_rects.append({"rect": text_rect_bg,
+                                  "action": btn["action"]})
+
+            col_i += 1
+            if col_i >= 3:
+                col_i = 0
+                row_i += 1
+
+        # ===============================================================
+        # 5. PENDING ORDERS PANEL (Scrollable)
+        # ===============================================================
+        pending_x = PANEL_X + 10
+        pending_y = PANEL_Y - 200
+        pending_w = PANEL_W - 20
+        pending_h = 140
+        pending_radius = 10
+
+        # PANEL BACKGROUND
+        pygame.draw.rect(screen, (235, 225, 245),
+                         (pending_x, pending_y, pending_w, pending_h),
+                         border_radius=pending_radius)
+        pygame.draw.rect(screen, (0, 0, 0),
+                         (pending_x, pending_y, pending_w, pending_h),
+                         2, border_radius=pending_radius)
+
+        # HEADER
+        header = label_font.render("Pending Orders", True, (0, 0, 0))
+        screen.blit(header, (pending_x + 10, pending_y + 8))
+
+        # ----------------------------
+        # SCROLL AREA (clipped region)
+        # ----------------------------
+        clip_rect = pygame.Rect(
+            pending_x + 5,
+            pending_y + 35,
+            pending_w - 10,
+            pending_h - 45  # slightly larger view
+        )
+
+        # Create a temporary surface for scrolling content
+        scroll_surf = pygame.Surface((clip_rect.w, 300), pygame.SRCALPHA)
+
+        line_y = -state.ui.pending_scroll  # apply scroll offset
+        orders = state.open_orders
+
+        for order in orders:
+            txt = f"{order['side'].upper()} {order['qty']} {order['ticker']} @ {order['limit_price']}"
+            line = label_font.render(txt, True, (30, 0, 50))
+            scroll_surf.blit(line, (0, line_y))
+            line_y += 22
+
+        # No orders case
+        if len(orders) == 0:
+            msg = label_font.render("None", True, (120, 120, 120))
+            scroll_surf.blit(msg, (0, line_y))
+
+        # Now blit the scrolled surface but clipped inside panel area
+        screen.set_clip(clip_rect)
+        screen.blit(scroll_surf, (clip_rect.x, clip_rect.y))
+        screen.set_clip(None)
 
         # ------------------------
-        # CONFIRM BUTTON (match glow + border radius)
+        # CONFIRM BUTTON (EXACTLY 200x50)
         # ------------------------
-        confirm_x = PANEL_X + 45
-        confirm_y = pad_start_y + 4 * 60
-        confirm_w = (70 * 3) + (10 * 2)
+
+        confirm_x = PANEL_X + 52  # <- Only change THESE to move it
+        confirm_y = pad_start_y + 300  # <-
+        confirm_w = 200
         confirm_h = 50
         confirm_radius = 6
 
         confirm_rect = pygame.Rect(confirm_x, confirm_y, confirm_w, confirm_h)
 
+        # Gradient background
         for i in range(confirm_h):
             shade = 120 + int(40 * (i / confirm_h))
-            pygame.draw.line(screen, (shade, shade, 255),
-                             (confirm_x, confirm_y + i),
-                             (confirm_x + confirm_w, confirm_y + i))
+            pygame.draw.line(
+                screen,
+                (shade, shade, 255),
+                (confirm_x, confirm_y + i),
+                (confirm_x + confirm_w, confirm_y + i)
+            )
 
+        # Border
         pygame.draw.rect(screen, (0, 0, 0), confirm_rect, 3, border_radius=confirm_radius)
 
+        # Glow
         crt_glow = pygame.Surface((confirm_w, confirm_h), pygame.SRCALPHA)
-        pygame.draw.rect(crt_glow, (100, 120, 255, 80),
-                         crt_glow.get_rect(), border_radius=confirm_radius)
+        pygame.draw.rect(crt_glow, (100, 120, 255, 80), crt_glow.get_rect(), border_radius=confirm_radius)
         screen.blit(crt_glow, (confirm_x, confirm_y))
 
-        txt = font.render("CONFIRM", True, (0, 0, 0))
-        screen.blit(txt, txt.get_rect(center=confirm_rect.center))
+        # TEXT (centered)
+        confirm_text = font.render("CONFIRM", True, (0, 0, 0))
+        text_rect = confirm_text.get_rect(center=confirm_rect.center)
+        screen.blit(confirm_text, text_rect)
 
+        # Register
         num_pad_rects.append({"rect": confirm_rect, "action": "confirm_order"})
 
         # ===============================================================
-        # DROPDOWN
+        # DROPDOWN (fully aligned, no floating text or jumps)
         # ===============================================================
-        dropdown_rect = pygame.Rect(PANEL_X + 10,
-                                    PANEL_Y + OFFSET_TOP,
-                                    PANEL_W - 20, 40)
+        dropdown_rect = pygame.Rect(
+            PANEL_X + 10,
+            PANEL_Y - 90 + OFFSET_TOP,
+            PANEL_W - 20,
+            40
+        )
 
+        # Draw dropdown background
         pygame.draw.rect(screen, (240, 240, 255), dropdown_rect, border_radius=6)
         pygame.draw.rect(screen, (0, 0, 0), dropdown_rect, 2, border_radius=6)
 
-        text = label_font.render(state.ui.order_type, True, (0, 0, 0))
-        screen.blit(text, (dropdown_rect.x + 10, dropdown_rect.y + 8))
+        # Draw selected order type text INSIDE the dropdown box
+        dropdown_label = label_font.render(state.ui.order_type, True, (0, 0, 0))
+        screen.blit(dropdown_label, (dropdown_rect.x + 10, dropdown_rect.y + 8))
 
         option_rects = []
+
         if state.ui.order_dropdown_open:
+
+            # First dropdown option must appear EXACTLY on top of dropdown_rect
             oy = dropdown_rect.bottom
-            for opt in [
+
+            options = [
                 "Buy - Market Order",
                 "Buy - Limit Order",
                 "Sell - Market Order",
                 "Sell - Limit Order"
-            ]:
-                r = pygame.Rect(PANEL_X + 10, oy, PANEL_W - 20, 40)
+            ]
 
+            for opt in options:
+                # Each option exactly same width & alignment as dropdown_rect
+                r = pygame.Rect(
+                    dropdown_rect.x,
+                    oy,
+                    dropdown_rect.width,
+                    40
+                )
+
+                # Draw aligned background
                 pygame.draw.rect(screen, (250, 250, 255), r, border_radius=6)
                 pygame.draw.rect(screen, (0, 0, 0), r, 2, border_radius=6)
 
-                screen.blit(label_font.render(opt, True, (0, 0, 0)),
-                            (r.x + 10, r.y + 8))
+                # Draw option text
+                opt_label = label_font.render(opt, True, (0, 0, 0))
+                screen.blit(opt_label, (r.x + 10, r.y + 8))
 
                 option_rects.append((opt, r))
                 oy += 40
@@ -1667,7 +1824,6 @@ class GameGUI:
         """
         surf = pygame.Surface((1920, 1080), pygame.SRCALPHA)
 
-        # Render chart exactly the way you normally do,
         # but onto this isolated surface instead of game_surface.
         chart_buttons = self.render_chart(font, state, surf,time_font)
 
