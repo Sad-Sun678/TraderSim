@@ -180,61 +180,82 @@ class Stock:
         self.recent_prices = self.recent_prices[-200:]
 
         # ----------------------------------------------------
-        # VOLUME SIMULATION (clean, no duplicates)
+        # VOLUME SIMULATION (balanced, randomized, no runaway)
         # ----------------------------------------------------
         base_vol = self.avg_volume
         vol = self.volume
         t = gs.market_time
 
+        # ---------- MARKET OPEN ----------
         if gs.is_market_open:
-            vol += (base_vol - vol) * 0.05
-            vol += random.randint(-int(base_vol * 0.025), int(base_vol * 0.025))
 
+            # 1) Mean reversion toward baseline
+            vol += (base_vol - vol) * random.uniform(0.03, 0.07)
+
+            # 2) Small noise
+            vol += random.randint(-int(base_vol * 0.015), int(base_vol * 0.025))
+
+            # 3) Intraday personality (one per day)
             if self.intraday_bias is None:
-                self.intraday_bias = random.uniform(0.7, 1.3)
+                self.intraday_bias = random.uniform(0.85, 1.25)
             vol *= self.intraday_bias
 
+            # 4) Intraday sine wave (reduced amplitude)
             if self.daily_volume_phase is None or t < 5:
-                self.daily_volume_phase = random.uniform(-0.7, 0.7)
+                self.daily_volume_phase = random.uniform(-0.5, 0.5)
 
             phase = self.daily_volume_phase
             t_ratio = (t - gs.market_open) / max(1, gs.market_close - gs.market_open)
-            sin_wave = 1.0 + 0.25 * math.sin(6.28 * (t_ratio + phase))
+            sin_wave = 1.0 + 0.12 * math.sin(6.28 * (t_ratio + phase))
             vol *= sin_wave
 
-            if 570 <= t <= 615:
-                vol *= random.uniform(1.2, 2.0)
-            elif 720 <= t <= 810:
-                vol *= random.uniform(0.7, 0.95)
-            elif 900 <= t <= 960:
-                vol *= random.uniform(1.1, 1.7)
+            # 5) Opening / midday / closing regimes
+            if 570 <= t <= 620:  # open
+                vol *= random.uniform(1.1, 1.4)
+            elif 720 <= t <= 810:  # lull
+                vol *= random.uniform(0.85, 1.0)
+            elif 900 <= t <= 960:  # close ramp
+                vol *= random.uniform(1.05, 1.35)
 
+            # 6) Occasional surge (still random, but not insane)
             if random.random() < 0.02:
-                vol *= random.uniform(1.3, 3.2)
+                vol *= random.uniform(1.15, 1.6)
 
+        # ---------- AFTER HOURS ----------
         else:
-            target_ah = base_vol * random.uniform(0.08, 0.18)
-            vol += (target_ah - vol) * 0.15
+            target_ah = base_vol * random.uniform(0.10, 0.18)
+            vol += (target_ah - vol) * random.uniform(0.12, 0.18)
             vol += random.randint(-int(base_vol * 0.005), int(base_vol * 0.005))
 
-        # seasonal multiplier ONCE
+        # ---------- SEASON MULTIPLIER ----------
         vol *= profile["volume_mult"]
 
-        # adaptive cap growth
+        # ----------------------------------------------------
+        # ADAPTIVE CAP GROWTH (controlled, randomized)
+        # ----------------------------------------------------
         if gs.is_market_open:
-            if vol > self.volume_cap * 0.7:
-                self.volume_cap *= random.uniform(1.01, 1.05)
-            elif vol < self.volume_cap * 0.3:
-                self.volume_cap *= random.uniform(0.97, 0.995)
-            self.volume_cap *= random.uniform(0.999, 1.001)
 
-        # safe clamp (protects agains SQLite overflow)
+            # If close to cap → tiny growth
+            if vol > self.volume_cap * 0.75:
+                self.volume_cap *= random.uniform(1.001, 1.004)
+
+            # If far below cap → tiny shrinkage
+            elif vol < self.volume_cap * 0.35:
+                self.volume_cap *= random.uniform(0.996, 0.999)
+
+            # Very small natural drift
+            self.volume_cap *= random.uniform(0.999, 1.0015)
+
+        # Cap stays within sane bounds
         self.volume_cap = max(base_vol * 5, min(self.volume_cap, base_vol * 40))
 
-        # SOFT clamp instead of hard cap (looks natural)
+        # ----------------------------------------------------
+        # SOFT CLAMP
+        # ----------------------------------------------------
         if vol > self.volume_cap:
-            vol = self.volume_cap - (self.volume_cap - vol) * 0.3
+            vol = self.volume_cap - (self.volume_cap - vol) * 0.35
 
+        # FINALIZE
         vol = max(150, vol)
         self.volume = int(vol)
 

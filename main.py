@@ -471,6 +471,7 @@ class GameState:
 
         return f"{h}:{m:02d} {suffix}"
 
+import pygame
 class GameAssets:
     def __init__(self):
         self.minus_up   = pygame.image.load("assets/buttons/minus_button.png").convert_alpha()
@@ -487,7 +488,8 @@ class GameAssets:
         "info_font": pygame.font.Font("assets/fonts/VCR_OSD_MONO_1.001.ttf", 20),
         "menu_font": pygame.font.Font("assets/fonts/VCR_OSD_MONO_1.001.ttf", 50),
         "sidebar_font": pygame.font.Font("assets/fonts/VCR_OSD_MONO_1.001.ttf", 50),
-        "info_bar_font": pygame.font.Font("assets/fonts/VCR_OSD_MONO_1.001.ttf", 16)
+        "info_bar_font": pygame.font.Font("assets/fonts/VCR_OSD_MONO_1.001.ttf", 16),
+        "time_label_font":pygame.font.Font("assets/fonts/VCR_OSD_MONO_1.001.ttf", 15)
         }
 
 
@@ -504,6 +506,8 @@ pixel_update_rate = 4   # update every 4 frames
 running = True
 state = GameState()
 assets = GameAssets()
+time_font = assets.fonts["time_label_font"]
+
 gui_system = GameGUI()
 state.gui = gui_system  #Gives access to UI manager
 choice = gui_system.render_main_menu(screen, assets.fonts["menu_font"])
@@ -596,6 +600,7 @@ while running:
         state.ui.pending_switch = None
 
         game_surface = pygame.Surface((1920, 1080))
+        game_surface.fill((0, 0, 0))
 
         if state.ui.current_screen == "portfolio":
             gui_system.render_portfolio_screen(game_surface, assets.fonts['header_font'], state)
@@ -604,7 +609,7 @@ while running:
             gui_system.render_visualize_screen(game_surface, assets.fonts['header_font'], state)
 
         else:
-            game_surface.fill((0, 0, 0))
+            # -------- MAIN GAME DURING SCREEN SWITCH --------
             gui_system.render_header(
                 assets.fonts["header_font"],
                 state.account,
@@ -624,48 +629,24 @@ while running:
             )
             state.ui.register_sidebar(sidebar_data)
 
-            # --------------------
-            # 1. Render chart to temp
-            # --------------------
-            chart_surface = pygame.Surface(game_surface.get_size(), pygame.SRCALPHA)
-
-            chart_buttons = gui_system.render_chart(
-                assets.fonts['info_font'], state, chart_surface
+            # ---------- BUILD CHART SURFACE ----------
+            chart_surface = gui_system.render_chart_to_surface(
+                state, assets, assets.fonts["info_font"], time_font
             )
 
-            # --------------------
-            # 2. Slide animation
-            # --------------------
-            ui = state.ui
-
-            if ui.chart_animating:
-                ui.chart_slide_y += (ui.chart_target_y - ui.chart_slide_y) * 0.20
-
-                if abs(ui.chart_slide_y - ui.chart_target_y) < 1:
-                    ui.chart_slide_y = ui.chart_target_y
-                    ui.chart_animating = False
-
-                game_surface.blit(chart_surface, (0, ui.chart_slide_y - ui.chart_target_y))
-            else:
-                game_surface.blit(chart_surface, (0, 0))
-
-            # --------------------
-            # 3. Update toggle rects
-            # --------------------
-            if chart_buttons:
-                state.toggle_volume_rect = chart_buttons["toggle_volume"]
-                state.toggle_candles_rect = chart_buttons["toggle_candles"]
-
-            # --------------------
-            # 4. INFO PANEL OVER TOP (IMPORTANT)
-            # --------------------
-            gui_system.render_info_panel(
-                assets.fonts['info_font'], assets, game_surface, state
+            # ---------- CHART + INFO PANEL TRANSITION ----------
+            gui_system.chart_transition(
+                game_surface,
+                chart_surface,
+                state.ui,
+                gui_system.render_info_panel,
+                assets.fonts['info_font'],
+                assets,
+                state,
+                time_font=time_font
             )
 
-            # --------------------
-            # 5. NEWS (top-most overlay)
-            # --------------------
+            # ---------- NEWS ABOVE EVERYTHING ----------
             state.news.update_and_draw(game_surface, dt)
 
         gui_system.screen_transition(screen, backbuffer, game_surface)
@@ -675,7 +656,6 @@ while running:
     # =====================================================
     # NORMAL RENDERING
     # =====================================================
-
     game_surface = pygame.Surface((1920, 1080))
     game_surface.fill((0, 0, 0))
 
@@ -708,55 +688,34 @@ while running:
         )
         state.ui.register_sidebar(sidebar_data)
 
-        # --------------------
-        # 1. Render chart to temp
-        # --------------------
-        chart_surface = pygame.Surface(game_surface.get_size(), pygame.SRCALPHA)
-        chart_buttons = gui_system.render_chart(
-            assets.fonts['info_font'], state, chart_surface
+        # ---------- BUILD CHART SURFACE ----------
+        chart_surface = gui_system.render_chart_to_surface(
+            state, assets, assets.fonts["info_font"], time_font
         )
 
-        # --------------------
-        # 2. Slide animation
-        # --------------------
-        ui = state.ui
-
-        if ui.chart_animating:
-            ui.chart_slide_y += (ui.chart_target_y - ui.chart_slide_y) * 0.20
-
-            if abs(ui.chart_slide_y - ui.chart_target_y) < 1:
-                ui.chart_slide_y = ui.chart_target_y
-                ui.chart_animating = False
-
-            game_surface.blit(chart_surface, (0, ui.chart_slide_y - ui.chart_target_y))
-        else:
-            game_surface.blit(chart_surface, (0, 0))
-
-        # --------------------
-        # 3. Update toggle rects
-        # --------------------
-        if chart_buttons:
-            state.toggle_volume_rect = chart_buttons["toggle_volume"]
-            state.toggle_candles_rect = chart_buttons["toggle_candles"]
-
-        # --------------------
-        # 4. INFO PANEL OVER TOP (IMPORTANT)
-        # --------------------
-        gui_system.render_info_panel(
-            assets.fonts['info_font'], assets, game_surface, state
+        # ---------- CHART + INFO PANEL TRANSITION ----------
+        gui_system.chart_transition(
+            game_surface,
+            chart_surface,
+            state.ui,
+            gui_system.render_info_panel,
+            assets.fonts['info_font'],
+            assets,
+            state,
+            time_font=time_font
         )
 
-        # --------------------
-        # 5. NEWS (top-most overlay)
-        # --------------------
+        # ---------- NEWS ABOVE EVERYTHING ----------
         state.news.update_and_draw(game_surface, dt)
 
     # ---------- PROCESS CLICK ----------
     if pending_click:
         mx, my = pending_click
-        state.ui.handle_mouse(mx, my,
-                              sidebar_data if state.ui.current_screen=="normal" else None,
-                              click_zones if state.ui.current_screen=="normal" else None)
+        state.ui.handle_mouse(
+            mx, my,
+            sidebar_data if state.ui.current_screen == "normal" else None,
+            click_zones if state.ui.current_screen == "normal" else None
+        )
         pending_click = None
 
     # ---------- CRT / NORMAL DRAW ----------
@@ -779,3 +738,4 @@ while running:
 pygame.mixer.quit()
 pygame.quit()
 sys.exit()
+

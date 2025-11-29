@@ -33,17 +33,23 @@ class UiEventManager:
         # Panel toggles
         self.pending_switch = None
         self.just_switched = False
+        # ---- CHART ANIMATION SYSTEM ----
+        self.chart_animating = False
+        self.chart_direction = "idle"  # "idle", "in", "out"
+        self.chart_target_y = 350  # where chart settles
+        self.chart_start_y = 1080  # off-screen bottom
+        self.chart_slide_y = self.chart_start_y
+
+        self.old_chart_surface = None
+        self.current_chart_surface = None
 
         # UI rect caches
         self.sidebar_rects = None
         self.ticker_rects = None
         self.portfolio_rects = {}
         self.visualize_rects = {}
-        # ---- chart slide animation ----
-        self.chart_animating = False
-        self.chart_slide_y = 700  # starting below the chart area
-        self.chart_target_y = 350  # your usual chart_y
-        self.chart_start_y = 700  # off-screen start
+
+
 
     # ------------------------------------------------
     # SCREEN CONTROL
@@ -255,20 +261,49 @@ class UiEventManager:
             for stk, rect in self.ticker_rects.items():
                 if rect.collidepoint(mx, my):
 
-                    self.selected_stock = stk
-                    self.state.selected_stock = stk
+                    old_stock = self.state.selected_stock
+                    new_stock = stk
 
-                    # ---- trigger slide-up animation ----
-                    self.chart_slide_y = self.chart_start_y  # reset to off-screen
-                    self.chart_animating = True
+                    # CASE 1 — no stock selected yet
+                    if old_stock is None:
+                        # update BOTH ui.selected_stock and state.selected_stock
+                        self.selected_stock = new_stock
+                        self.state.selected_stock = new_stock
 
-                    if stk not in state.portfolio:
-                        state.portfolio[stk] = {"shares": 0, "bought_at": [], "sell_qty": 0}
-                    else:
-                        state.portfolio[stk]["sell_qty"] = 0
+                        # Start the normal "snap UP" animation
+                        ui = self.state.ui
+                        ui.chart_direction = "in"
+                        ui.chart_slide_y = 1080
+                        ui.chart_animating = True
+
+                        try:
+                            self.state.sounds["chart"].play()
+                        except:
+                            pass
+                        return
+
+                    # CASE 2 — clicking same stock
+                    if new_stock == old_stock:
+                        return
+
+                    # CASE 3 — switching to a new stock
+                    ui = self.state.ui
+
+                    # store old chart to slide OUT
+                    ui.old_chart_surface = ui.current_chart_surface
+
+                    # phase 1 → old chart OUT
+                    ui.chart_direction = "out"
+                    ui.chart_slide_y = ui.chart_target_y
+                    ui.chart_animating = True
+
+                    # Set the NEW stock but do NOT animate it yet
+                    # (Phase 2 begins automatically inside chart_transition)
+                    self.selected_stock = new_stock
+                    self.state.selected_stock = new_stock
 
                     try:
-                        state.sounds["chart"].play()
+                        self.state.sounds["chart"].play()
                     except:
                         pass
 
@@ -358,16 +393,50 @@ class UiEventManager:
         if hasattr(news, "ticker_bar_rect") and news.ticker_bar_rect.collidepoint(mx, my):
             hit = news.handle_click(mx, my)
             if hit:
-                self.selected_stock = hit
-                self.state.selected_stock = hit     # <<< REQUIRED
 
-                if hit not in state.portfolio:
-                    state.portfolio[hit] = {"shares": 0, "bought_at": [], "sell_qty": 0}
+                old_stock = self.state.selected_stock
+                new_stock = hit
+
+                # CASE 1 — first ever selection
+                if old_stock is None:
+                    self.selected_stock = new_stock
+                    self.state.selected_stock = new_stock
+
+                    ui = self.state.ui
+                    ui.chart_direction = "in"
+                    ui.chart_slide_y = 1080
+                    ui.chart_animating = True
+
+                    try:
+                        state.sounds["chart"].play()
+                    except:
+                        pass
+                    return
+
+                # CASE 2 — same stock clicked → ignore
+                if new_stock == old_stock:
+                    return
+
+                # CASE 3 — selecting a *different* stock
+                ui = self.state.ui
+
+                ui.old_chart_surface = ui.current_chart_surface  # animate old OUT
+                ui.chart_direction = "out"
+                ui.chart_slide_y = 0
+                ui.chart_animating = True
+
+                self.selected_stock = new_stock
+                self.state.selected_stock = new_stock  # <<< REQUIRED
+
+                if new_stock not in state.portfolio:
+                    state.portfolio[new_stock] = {"shares": 0, "bought_at": [], "sell_qty": 0}
                 else:
-                    state.portfolio[hit]["sell_qty"] = 0
+                    state.portfolio[new_stock]["sell_qty"] = 0
 
-                try: state.sounds["chart"].play()
-                except: pass
+                try:
+                    state.sounds["chart"].play()
+                except:
+                    pass
 
                 return
 

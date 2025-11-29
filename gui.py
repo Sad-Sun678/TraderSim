@@ -3,7 +3,8 @@ import random
 import pygame
 import math
 import time
-import numpy
+
+
 
 class GameGUI:
     def __init__(self):
@@ -94,7 +95,7 @@ class GameGUI:
     # =====================================================
     # INFO PANEL
     # =====================================================
-    def render_info_panel(self, font, asset, screen, state):
+    def render_info_panel(self, font, asset, screen, state, y_offset = 0):
 
         if state.ui.selected_stock is None:
             return
@@ -178,7 +179,7 @@ class GameGUI:
 
         for line in right_lines:
             surf = font.render(line, True, (255,255,255))
-            screen.blit(surf, (right_text_x, right_text_y))
+            screen.blit(surf, (right_text_x, right_text_y + y_offset))
             right_text_y += 40
 
         # -------------------------
@@ -195,95 +196,92 @@ class GameGUI:
 
         for line in left_lines:
             surf = font.render(line, True, (255,255,255))
-            screen.blit(surf, (text_x, text_y))
+            screen.blit(surf, (text_x, text_y + y_offset))
             text_y += line_spacing
 
         # =========================================================================
-        # BUY CLUSTER
+        # HIDE BUY/SELL CLUSTERS IN VOLUME MODE
         # =========================================================================
-        buy_rect = pygame.Rect(buy_x, cluster_y, buy_w, cluster_h)
-        if state.ui.button_cooldowns["buy"] > 0:
-            screen.blit(asset.buy_button_down, (buy_x, cluster_y))
-        else:
-            screen.blit(asset.buy_button_up, (buy_x, cluster_y))
+        if not state.show_volume:
 
-        minus_buy_rect = pygame.Rect(minus_buy_x, cluster_y, minus_w, cluster_h)
-        plus_buy_rect  = pygame.Rect(plus_buy_x,  cluster_y, plus_w,  cluster_h)
+            # ---------------- BUY CLUSTER ----------------
+            buy_rect = pygame.Rect(buy_x, cluster_y, buy_w, cluster_h)
+            if state.ui.button_cooldowns["buy"] > 0:
+                screen.blit(asset.buy_button_down, (buy_x, cluster_y + y_offset))
+            else:
+                screen.blit(asset.buy_button_up, (buy_x, cluster_y + y_offset))
 
-        if state.ui.button_cooldowns["minus_buy"] > 0:
-            screen.blit(asset.minus_down, (minus_buy_x, cluster_y))
-        else:
-            screen.blit(asset.minus_up, (minus_buy_x, cluster_y))
+            minus_buy_rect = pygame.Rect(minus_buy_x, cluster_y, minus_w, cluster_h)
+            plus_buy_rect = pygame.Rect(plus_buy_x, cluster_y, plus_w, cluster_h)
 
-        if state.ui.button_cooldowns["plus_buy"] > 0:
-            screen.blit(asset.plus_down, (plus_buy_x, cluster_y))
-        else:
-            screen.blit(asset.plus_up, (plus_buy_x, cluster_y))
+            if state.ui.button_cooldowns["minus_buy"] > 0:
+                screen.blit(asset.minus_down, (minus_buy_x, cluster_y + y_offset))
+            else:
+                screen.blit(asset.minus_up, (minus_buy_x, cluster_y + y_offset))
 
-        max_buy_rect = pygame.Rect(max_buy_x, max_y, max_buy_w, cluster_h)
-        if state.ui.button_cooldowns["max_buy"] > 0:
-            screen.blit(asset.max_down, (max_buy_x, max_y))
-        else:
-            screen.blit(asset.max_up, (max_buy_x, max_y))
+            if state.ui.button_cooldowns["plus_buy"] > 0:
+                screen.blit(asset.plus_down, (plus_buy_x, cluster_y + y_offset))
+            else:
+                screen.blit(asset.plus_up, (plus_buy_x, cluster_y + y_offset))
 
-        # =========================================================================
-        # SELL CLUSTER
-        # =========================================================================
-        sell_rect = pygame.Rect(sell_x, cluster_y, sell_w, cluster_h)
+            max_buy_rect = pygame.Rect(max_buy_x, max_y, max_buy_w, cluster_h)
+            if state.ui.button_cooldowns["max_buy"] > 0:
+                screen.blit(asset.max_down, (max_buy_x, max_y + y_offset))
+            else:
+                screen.blit(asset.max_up, (max_buy_x, max_y + y_offset))
 
-        if state.ui.button_cooldowns["sell"] > 0:
-            screen.blit(asset.buy_button_down, (sell_x, cluster_y))
-        else:
-            screen.blit(asset.buy_button_up, (sell_x, cluster_y))
+            # ---------------- SELL CLUSTER ----------------
+            sell_rect = pygame.Rect(sell_x, cluster_y, sell_w, cluster_h)
 
-        minus_sell_rect = pygame.Rect(minus_sell_x, cluster_y, minus_w, cluster_h)
-        plus_sell_rect  = pygame.Rect(plus_sell_x,  cluster_y, plus_w,  cluster_h)
+            if state.ui.button_cooldowns["sell"] > 0:
+                screen.blit(asset.buy_button_down, (sell_x, cluster_y + y_offset))
+            else:
+                screen.blit(asset.buy_button_up, (sell_x, cluster_y + y_offset))
 
-        if state.ui.button_cooldowns["minus_sell"] > 0:
-            screen.blit(asset.minus_down, (minus_sell_x, cluster_y))
-        else:
-            screen.blit(asset.minus_up, (minus_sell_x, cluster_y))
+            minus_sell_rect = pygame.Rect(minus_sell_x, cluster_y, minus_w, cluster_h)
+            plus_sell_rect = pygame.Rect(plus_sell_x, cluster_y, plus_w, cluster_h)
 
-        if state.ui.button_cooldowns["plus_sell"] > 0:
-            screen.blit(asset.plus_down, (plus_sell_x, cluster_y))
-        else:
-            screen.blit(asset.plus_up, (plus_sell_x, cluster_y))
+            if state.ui.button_cooldowns["minus_sell"] > 0:
+                screen.blit(asset.minus_down, (minus_sell_x, cluster_y + y_offset))
+            else:
+                screen.blit(asset.minus_up, (minus_sell_x, cluster_y + y_offset))
 
-        max_sell_rect = pygame.Rect(max_sell_x, max_y, max_sell_w, cluster_h)
-        if state.ui.button_cooldowns["max_sell"] > 0:
-            screen.blit(asset.max_down, (max_sell_x, max_y))
-        else:
-            screen.blit(asset.max_up, (max_sell_x, max_y))
+            if state.ui.button_cooldowns["plus_sell"] > 0:
+                screen.blit(asset.plus_down, (plus_sell_x, cluster_y + y_offset))
+            else:
+                screen.blit(asset.plus_up, (plus_sell_x, cluster_y + y_offset))
 
-        # =========================================================================
-        # SEND HITBOXES → UI MANAGER
-        # =========================================================================
-        state.ui.register_info_panel_rects({
-            "buy": buy_rect,
-            "plus_buy": plus_buy_rect,
-            "minus_buy": minus_buy_rect,
-            "max_buy": max_buy_rect,
+            max_sell_rect = pygame.Rect(max_sell_x, max_y, max_sell_w, cluster_h)
+            if state.ui.button_cooldowns["max_sell"] > 0:
+                screen.blit(asset.max_down, (max_sell_x, max_y + y_offset))
+            else:
+                screen.blit(asset.max_up, (max_sell_x, max_y + y_offset))
 
-            "sell": sell_rect,
-            "plus_sell": plus_sell_rect,
-            "minus_sell": minus_sell_rect,
-            "max_sell": max_sell_rect,
-        })
+            # ---------------- REGISTER HITBOXES ----------------
+            state.ui.register_info_panel_rects({
+                "buy": buy_rect,
+                "plus_buy": plus_buy_rect,
+                "minus_buy": minus_buy_rect,
+                "max_buy": max_buy_rect,
 
-        # =========================================================================
-        # TEXT LABELS
-        # =========================================================================
-        screen.blit(font.render(f"BUY:{qty_text}", True, (0,0,0)),
-                    (buy_x + 80, cluster_y + 15))
+                "sell": sell_rect,
+                "plus_sell": plus_sell_rect,
+                "minus_sell": minus_sell_rect,
+                "max_sell": max_sell_rect,
+            })
 
-        screen.blit(font.render("MAX", True, (0,0,0)),
-                    (max_buy_x + 135, max_y + 15))
+            # ---------------- CLUSTER LABELS ----------------
+            screen.blit(font.render(f"BUY:{qty_text}", True, (0, 0, 0)),
+                        (buy_x + 80, cluster_y + 15 + y_offset))
 
-        screen.blit(font.render(f"SELL:{qty_sell_text}", True, (0,0,0)),
-                    (sell_x + 80, cluster_y + 15))
+            screen.blit(font.render("MAX", True, (0, 0, 0)),
+                        (max_buy_x + 135, max_y + 15 + y_offset))
 
-        screen.blit(font.render("MAX", True, (0,0,0)),
-                    (max_sell_x + 135, max_y + 15))
+            screen.blit(font.render(f"SELL:{qty_sell_text}", True, (0, 0, 0)),
+                        (sell_x + 80, cluster_y + 15 + y_offset))
+
+            screen.blit(font.render("MAX", True, (0, 0, 0)),
+                        (max_sell_x + 135, max_y + 15 + y_offset))
 
     def render_main_menu(self, screen, font):
         menu_running = True
@@ -562,11 +560,7 @@ class GameGUI:
     def get_slider_value(self, slider_rect,handle_x):
         return int((handle_x - slider_rect.x) / slider_rect.width * 100)  # Value from 0 to 100
 
-
-
-
-
-    def render_chart(self,font, state, screen):
+    def render_chart(self, font, state, screen, time_font):
         import pygame
 
         if state.selected_stock is None:
@@ -575,16 +569,16 @@ class GameGUI:
         # ----------------------------------------
         # CONSTANTS
         # ----------------------------------------
-        chart_x      = 190
-        chart_width  = 1326
-        chart_y      = 350
+        chart_x = 190
+        chart_width = 1326
+        chart_y = 350
         chart_height = 400
-        vol_height   = 120
+        vol_height = 120
 
         # ----------------------------------------
         # PANEL BACKGROUND
         # ----------------------------------------
-        panel_rect = pygame.Rect(chart_x - 8, 90, chart_width + 12, 350 + 420)
+        panel_rect = pygame.Rect(chart_x - 8, 90, chart_width + 12, 350 + 330)
         pygame.draw.rect(screen, (40, 0, 80), panel_rect)
 
         # ----------------------------------------
@@ -593,7 +587,7 @@ class GameGUI:
         button_y = 310
         button_x = 1040
 
-        volume_button_rect  = pygame.Rect(button_x, button_y, 155, 30)
+        volume_button_rect = pygame.Rect(button_x, button_y, 155, 30)
         candle_button_rect = pygame.Rect(button_x + 200, button_y, 155, 30)
 
         state.toggle_volume_rect = volume_button_rect
@@ -650,10 +644,29 @@ class GameGUI:
         visible_entries = full_window[state.chart_offset: state.chart_offset + new_visible]
         state.prev_chart_zoom = zoom
 
+        if not history or not visible_entries:
+            return {}
+
         # ----------------------------------------
         # DX
         # ----------------------------------------
         dx = chart_width / new_visible
+        # --------------------------------------------------
+        # FIX OFFSET LIMIT BEFORE MAKING visible_entries SLICE
+        # --------------------------------------------------
+
+        true_total = len(full_window)  # full 5m candles
+        true_visible = new_visible  # visible candle count (aggregated)
+
+        max_offset = max(0, true_total - true_visible)
+        state.chart_offset = max(0, min(state.chart_offset, max_offset))
+
+        visible_entries = full_window[state.chart_offset: state.chart_offset + true_visible]
+
+        # ensure counts match actual slice
+        new_visible = len(visible_entries)
+        dx = chart_width / max(new_visible, 1)
+
         # ====================================================
         # TIMEFRAME SELECTION (DYNAMIC)
         # ====================================================
@@ -662,14 +675,13 @@ class GameGUI:
         # Only compress candles if timeframe > 5m
         if tf_minutes != 5:
             visible_entries = self.aggregate_candles(visible_entries, 5, tf_minutes)
-            # Recompute dx because candle count changed
             new_visible = len(visible_entries)
             dx = chart_width / max(new_visible, 1)
 
         # ----------------------------------------
         # PRICE RANGE
         # ----------------------------------------
-        lowest_price  = min(p["low"] for p in visible_entries)
+        lowest_price = min(p["low"] for p in visible_entries)
         highest_price = max(p["high"] for p in visible_entries)
 
         if highest_price == lowest_price:
@@ -701,24 +713,14 @@ class GameGUI:
             y = price_to_y(lowest_price + step * i)
             pygame.draw.line(screen, grid_color, (chart_x, y), (chart_x + chart_width, y), 1)
 
-        # vertical subdivisions
-        if dx >= 60:   every = 1
-        elif dx >= 30: every = 2
-        elif dx >= 15: every = 5
-        elif dx >= 7:  every = 10
-        else:          every = 20
-
-        for i in range(1, new_visible - 1, every):
-            x = center_x(i)
-            pygame.draw.line(screen, grid_color, (x, chart_y), (x, chart_y + chart_height), 1)
-
         # ----------------------------------------
-        # DRAGGING
+        # DRAGGING — correctly clamped
         # ----------------------------------------
         mx, my = pygame.mouse.get_pos()
         left_pressed = pygame.mouse.get_pressed()[0]
 
         if left_pressed and chart_x <= mx <= chart_x + chart_width and chart_y <= my <= chart_y + chart_height:
+
             if not state.chart_dragging:
                 state.chart_dragging = True
                 state.chart_drag_start_x = mx
@@ -726,22 +728,26 @@ class GameGUI:
 
             drag_dx = mx - state.chart_drag_start_x
             shift = int(drag_dx / dx)
-            max_offset = max(0, total_points - new_visible)
-            state.chart_offset = max(0, min(state.chart_offset_start - shift, max_offset))
+
+            # recalc limit using aggregated entry count
+            max_offset = max(0, true_total - true_visible)
+
+            new_offset = state.chart_offset_start - shift
+            state.chart_offset = max(0, min(new_offset, max_offset))
+
         else:
             state.chart_dragging = False
 
         # ----------------------------------------
-        # CANDLES
+        # CANDLES / LINE
         # ----------------------------------------
         if state.show_candles:
             for i, c in enumerate(visible_entries):
-
                 x = center_x(i)
-                open_y  = price_to_y(c["open"])
+                open_y = price_to_y(c["open"])
                 close_y = price_to_y(c["close"])
-                high_y  = price_to_y(c["high"])
-                low_y   = price_to_y(c["low"])
+                high_y = price_to_y(c["high"])
+                low_y = price_to_y(c["low"])
 
                 color = (0, 200, 0) if c["close"] >= c["open"] else (255, 80, 80)
 
@@ -755,9 +761,7 @@ class GameGUI:
                 body_top = min(open_y, close_y)
                 body_h = abs(open_y - close_y)
 
-                # wick
                 pygame.draw.line(screen, color, (x, high_y), (x, low_y), 2)
-                # body
                 pygame.draw.rect(screen, color, (body_left, body_top, body_w, body_h))
 
         else:
@@ -765,6 +769,188 @@ class GameGUI:
             if len(pts) > 1:
                 pygame.draw.lines(screen, (255, 255, 255), False, pts, 2)
 
+
+
+        # --------------------------------------------------------
+        # TIME MARKERS + DAY MARKERS (with anti-jumble protection)
+        # --------------------------------------------------------
+        time_y_base = chart_y + chart_height + (vol_height if state.show_volume else 10) + 25
+        label_color = (160, 120, 255)
+
+        # Minimum pixel spacing between vertical grid lines
+        MIN_GRID_SPACING = 80
+
+        # Track last actual drawn gridline X
+        last_grid_x = -999
+
+        # ---------- MODE SWITCH BASED ON dx ----------
+        STAMPED_MIN_DX = 4.0
+        STAMPED_MAX_DX = 12.0
+
+        use_dynamic_labels = not (STAMPED_MIN_DX <= dx <= STAMPED_MAX_DX)
+
+        # ========================================================
+        # MODE 1 — DYNAMIC LABELS
+        # ========================================================
+        if use_dynamic_labels:
+
+            TARGET_SPACING = 90
+            dynamic_every = max(1, int(TARGET_SPACING / max(dx, 0.001)))
+
+            state.label_toggle = False
+            total = len(visible_entries)
+
+            for i, e in enumerate(visible_entries):
+
+                # Always draw ends
+                if i == 0 or i == total - 1:
+                    pass
+                elif i % dynamic_every != 0:
+                    continue
+
+                x = center_x(i)
+                if x < chart_x or x > chart_x + chart_width:
+                    continue
+
+                # >>> SKIP IF TOO CLOSE TO PREVIOUS GRIDLINE <<<
+                if abs(x - last_grid_x) < MIN_GRID_SPACING:
+                    continue
+
+                last_grid_x = x  # record actual drawn line
+
+                # Draw vertical grid line
+                pygame.draw.line(screen, grid_color, (x, chart_y), (x, chart_y + chart_height), 1)
+
+                # Draw time label
+                label = state.format_time(e["time"])
+                time_y = time_y_base + (20 if state.label_toggle else 0)
+                state.label_toggle = not state.label_toggle
+
+                tsurf = time_font.render(label, True, label_color)
+                trec = tsurf.get_rect(center=(x, time_y))
+                screen.blit(tsurf, trec)
+
+                pygame.draw.line(screen, label_color, (x, time_y - 10), (x, time_y - 6), 2)
+
+
+        # ========================================================
+        # MODE 2 — STAMPED LABELS (interval-based)
+        # ========================================================
+        else:
+
+            # choose interval
+            if tf_minutes == 5:
+                label_every_minutes = 30 if dx >= 12 else 60
+            elif tf_minutes == 15:
+                label_every_minutes = 60
+            elif tf_minutes == 30:
+                label_every_minutes = 120
+            elif tf_minutes == 60:
+                label_every_minutes = 240
+            elif tf_minutes == 120:
+                label_every_minutes = 480
+            elif tf_minutes == 240:
+                label_every_minutes = 720
+            else:
+                label_every_minutes = None
+
+            stamped_count = 0
+
+            if label_every_minutes is not None:
+                state.label_toggle = False
+
+                for i, e in enumerate(visible_entries):
+
+                    if (e["time"] % label_every_minutes) != 0:
+                        continue
+
+                    x = center_x(i)
+                    if x < chart_x or x > chart_x + chart_width:
+                        continue
+
+                    # >>> SKIP IF TOO CLOSE TO PREVIOUS GRIDLINE <<<
+                    if abs(x - last_grid_x) < MIN_GRID_SPACING:
+                        continue
+
+                    last_grid_x = x
+                    stamped_count += 1
+
+                    # draw line
+                    pygame.draw.line(screen, grid_color, (x, chart_y), (x, chart_y + chart_height), 1)
+
+                    # label
+                    label = state.format_time(e["time"])
+                    time_y = time_y_base + (20 if state.label_toggle else 0)
+                    state.label_toggle = not state.label_toggle
+
+                    tsurf = time_font.render(label, True, label_color)
+                    trec = tsurf.get_rect(center=(x, time_y))
+                    screen.blit(tsurf, trec)
+                    pygame.draw.line(screen, label_color, (x, time_y - 14), (x, time_y - 6), 2)
+
+            # -------- fallback to dynamic if no stamped lines produced --------
+            if stamped_count == 0:
+                # call dynamic logic again, but with spacing protection
+                TARGET_SPACING = 90
+                dynamic_every = max(1, int(TARGET_SPACING / max(dx, 0.001)))
+
+                state.label_toggle = False
+                total = len(visible_entries)
+
+                for i, e in enumerate(visible_entries):
+
+                    if i == 0 or i == total - 1:
+                        pass
+                    elif i % dynamic_every != 0:
+                        continue
+
+                    x = center_x(i)
+                    if x < chart_x or x > chart_x + chart_width:
+                        continue
+
+                    # >>> SKIP IF TOO CLOSE <<<
+                    if abs(x - last_grid_x) < MIN_GRID_SPACING:
+                        continue
+
+                    last_grid_x = x
+
+                    pygame.draw.line(screen, grid_color, (x, chart_y), (x, chart_y + chart_height), 1)
+
+                    label = state.format_time(e["time"])
+                    time_y = time_y_base + (20 if state.label_toggle else 0)
+                    state.label_toggle = not state.label_toggle
+
+                    tsurf = time_font.render(label, True, label_color)
+                    trec = tsurf.get_rect(center=(x, time_y))
+                    screen.blit(tsurf, trec)
+
+                    pygame.draw.line(screen, label_color, (x, time_y - 14), (x, time_y - 6), 2)
+
+        # ----------------------------------------
+        # DAY MARKERS (midnight)
+        # ----------------------------------------
+        day_color = (255, 200, 90)
+
+        for i, e in enumerate(visible_entries):
+            if e["time"] != 0:
+                continue
+
+            x = center_x(i)
+            if x < chart_x or x > chart_x + chart_width:
+                continue
+
+            pygame.draw.line(
+                screen,
+                day_color,
+                (x, chart_y+420),
+                (x, chart_y + chart_height),
+                2
+            ) #DAY LINE
+
+            day_label = f"Day {e['day']}"
+            d_surf = time_font.render(day_label, True, day_color)
+            d_rect = d_surf.get_rect(center=(x, time_y_base + 45))
+            screen.blit(d_surf, d_rect)
         # ----------------------------------------
         # VOLUME
         # ----------------------------------------
@@ -790,7 +976,6 @@ class GameGUI:
                 color = (0, 180, 0) if e["close"] >= e["open"] else (200, 60, 60)
 
                 pygame.draw.rect(screen, color, (left, top, bar_w, h))
-
         # ----------------------------------------
         # TOOLTIP
         # ----------------------------------------
@@ -815,26 +1000,24 @@ class GameGUI:
                 f"Volume: {e['volume']:,}"
             ]
 
-            # vertical line
-            pygame.draw.line(screen, (255,255,255), (mx, chart_y), (mx, chart_y + chart_height), 1)
+            pygame.draw.line(screen, (255, 255, 255), (mx, chart_y), (mx, chart_y + chart_height), 1)
 
-            # highlight dot
             close_y = price_to_y(e["close"])
-            pygame.draw.circle(screen, (255,255,0), (mx, int(close_y)), 6)
+            pygame.draw.circle(screen, (255, 255, 0), (mx, int(close_y)), 6)
 
-            # tooltip box
             padding = 8
-            w = max(font.render(t, True, (255,255,255)).get_width() for t in lines) + padding*2
-            h = len(lines) * font.get_height() + padding*2
+            w = max(font.render(t, True, (255, 255, 255)).get_width() for t in lines) + padding * 2
+            h = len(lines) * font.get_height() + padding * 2
             r = pygame.Rect(mx + 20, my + 20, w, h)
 
-            pygame.draw.rect(screen, (20,20,40), r)
-            pygame.draw.rect(screen, (120,0,160), r, 2)
+            pygame.draw.rect(screen, (20, 20, 40), r)
+            pygame.draw.rect(screen, (120, 0, 160), r, 2)
 
             ty = r.y + padding
             for t in lines:
-                screen.blit(font.render(t, True, (255,255,255)), (r.x + padding, ty))
+                screen.blit(font.render(t, True, (255, 255, 255)), (r.x + padding, ty))
                 ty += font.get_height()
+
         return {
             "toggle_volume": volume_button_rect,
             "toggle_candles": candle_button_rect
@@ -1242,6 +1425,81 @@ class GameGUI:
 
             pygame.display.flip()
             clock.tick(60)
+
+    def chart_transition(self, game_surface, chart_surface, ui,
+                         info_panel_renderer, info_font, assets, state,
+                         speed=0.14, damping=0.12, frequency=18,time_font = None):
+
+        # =====================================================
+        # OUTGOING → slide old chart DOWN off-screen
+        # =====================================================
+        if ui.chart_direction == "out" and ui.old_chart_surface is not None:
+
+            ui.chart_slide_y += 40  # slide downward
+
+            if ui.chart_slide_y >= 1080:
+                ui.chart_direction = "in"
+                ui.chart_slide_y = ui.chart_start_y
+                ui.old_chart_surface = None
+                return
+
+            offset = ui.chart_slide_y  # how far down old chart is
+
+            # Draw OLD chart
+            game_surface.blit(ui.old_chart_surface, (0, offset))
+
+            # Draw info panel on TOP of the old chart as it leaves
+            info_panel_renderer(info_font, assets, game_surface, state, y_offset=offset)
+
+            return
+
+        # =====================================================
+        # INCOMING → slide new chart UP with elastic wobble
+        # =====================================================
+        if ui.chart_direction == "in":
+
+            delta = ui.chart_target_y - ui.chart_slide_y
+
+            # Elastic slide-in
+            ui.chart_slide_y += delta * speed
+            ui.chart_slide_y += math.sin(delta * frequency) * (abs(delta) * damping)
+
+            if abs(delta) < 0.5:
+                ui.chart_slide_y = ui.chart_target_y
+                ui.chart_direction = "idle"
+                ui.chart_animating = False
+
+            offset = ui.chart_slide_y - ui.chart_target_y
+
+            # --- DRAW CHART ---
+            game_surface.blit(chart_surface, (0, offset))
+
+            # --- DRAW INFO PANEL ON TOP ---
+            info_panel_renderer(info_font, assets, game_surface, state, y_offset=offset)
+
+            ui.current_chart_surface = chart_surface.copy()
+            return
+
+        # =====================================================
+        # IDLE (no animation)
+        # =====================================================
+        game_surface.blit(chart_surface, (0, 0))
+        info_panel_renderer(info_font, assets, game_surface, state)
+
+        ui.current_chart_surface = chart_surface.copy()
+
+    def render_chart_to_surface(self, state, assets, font, time_font):
+        """
+        Creates a transparent surface and renders the chart onto it.
+        This isolates chart drawing so transitions can animate it.
+        """
+        surf = pygame.Surface((1920, 1080), pygame.SRCALPHA)
+
+        # Render chart exactly the way you normally do,
+        # but onto this isolated surface instead of game_surface.
+        chart_buttons = self.render_chart(font, state, surf,time_font)
+
+        return surf
 
 
 def apply_crt_warp(surface, curve_strength=0.045):
