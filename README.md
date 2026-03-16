@@ -18,10 +18,8 @@ A retro-styled stock market trading simulator built with Python and Pygame. Mana
 - **Persistence** — SQLite database and JSON config files save your progress automatically
 
 ---
-
 ## Screenshots
-
-> *(Add screenshots here)*
+![Stock Market Sim screenshot](screenshot/stonk.png "Main Screen")
 
 ---
 
